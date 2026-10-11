@@ -37,6 +37,10 @@ export const dataView: DataView = {
       return { id: m.id, conversationId: m.conversationId, characterId: who.get(m.conversationId), role: m.role, text: [textOf(m).trim(), ...alts].filter(Boolean).join('\n'), ts: m.ts };
     });
   },
+  async conversationWith(characterId) {
+    const c = await db().conversations.where('pluginId').equals('chat').filter((x) => x.kind === 'direct' && x.participantIds[0] === characterId).first();
+    return c?.id;
+  },
   async userProfile() {
     const [name, profile] = await Promise.all([db().getKV('kernel.userName', '我'), db().getKV('kernel.userProfile', '')]);
     return { name, profile };

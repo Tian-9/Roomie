@@ -265,6 +265,8 @@ export interface DataView {
   messages(opts: { from: number; to: number; limit?: number }): Promise<MessageView[]>;
   /** 你：名字和画像（引导里填的、他慢慢记下的） */
   userProfile(): Promise<{ name: string; profile: string }>;
+  /** 和他的私聊会话 id；还没聊过就是 undefined（只找不建）。插件想把人带进对话用 `nav.push('chat', 'conversation', { id, draft? })` */
+  conversationWith(characterId: string): Promise<string | undefined>;
 }
 
 export interface CharacterView { id: string; name: string; avatar?: Blob; core: string }

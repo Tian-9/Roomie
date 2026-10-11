@@ -15,14 +15,15 @@
   import { canListen, canSpeak, recognitionCtor, listen, Speaker } from '$kernel/api';
   import { onDestroy } from 'svelte';
 
-  let { id }: { id: string } = $props();
+  /** draft：别的界面把人带进对话时预填的一句（动态页的「回他一句」），进来就能接着打 */
+  let { id, draft: initialDraft = '' }: { id: string; draft?: string } = $props();
   const conv = live(() => db().conversations.get(id), undefined);
   const character = live(async () => { const c = await db().conversations.get(id); return c ? repo.characterOfConversation(c) : undefined; }, undefined);
   const messages = live(() => repo.messagesOf(id), [] as Message[]);
   const liveTurn = $derived(chat.live[id]);
   const status = $derived(liveTurn?.status ?? 'idle');
 
-  let draft = $state('');
+  let draft = $state(initialDraft);
   let menu = $state(false);
   // 「+」面板：插件登记的动作（歌曲、红包…）
   let panel = $state(false);
@@ -45,6 +46,9 @@
   let scroller: HTMLDivElement;
   let textarea: HTMLTextAreaElement;
 
+  $effect(() => {
+    if (initialDraft) tick().then(() => { grow(); textarea?.focus(); });
+  });
   $effect(() => {
     // 任何消息或流式文本变化都滚到底
     void messages.value.length; void liveTurn?.text;
