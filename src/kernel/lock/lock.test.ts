@@ -173,14 +173,17 @@ describe('lock', () => {
     await a.lock.setSecret('plugin.telegram.botToken', '123:tok-plain');
     expect(await a.db.getKV('secret.plugin.telegram.botToken', '')).toBe('123:tok-plain');
     expect(await a.lock.getSecret('plugin.telegram.botToken')).toBe('123:tok-plain');
+    expect(await a.lock.hasSecret('plugin.telegram.botToken')).toBe(true);
     await a.lock.setSecret('plugin.sync.pass', '');
     expect(await a.lock.getSecret('plugin.sync.pass')).toBe('');
+    expect(await a.lock.hasSecret('plugin.sync.pass')).toBe(false);
 
     await a.lock.enable('1234');
     expect(JSON.stringify(await a.db.kv.toArray())).not.toContain('tok-plain');
     const rec = (await a.db.getKV<LockRecord | null>('kernel.lock', null))!;
     expect(Object.keys(rec.secrets ?? {})).toEqual(['plugin.telegram.botToken']);
     expect(await a.lock.getSecret('plugin.telegram.botToken')).toBe('123:tok-plain');
+    expect(await a.lock.hasSecret('plugin.telegram.botToken')).toBe(true); // 开了锁屏也能答
     // 开着锁屏改：重封
     await a.lock.setSecret('plugin.telegram.botToken', '123:tok-second');
     expect(JSON.stringify(await a.db.kv.toArray())).not.toContain('tok-second');

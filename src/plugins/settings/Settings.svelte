@@ -8,6 +8,7 @@
   import { MODELS } from '$kernel/llm/pricing';
   import { chat } from '$kernel/chat/engine.svelte';
   import { lock } from '$kernel/lock/lock.svelte';
+  import { sync } from './sync.svelte';
   const modelLabel = $derived(MODELS.find((m) => m.id === llm.settings.model)?.label ?? llm.settings.model);
   const modeLabel = $derived({ system: '跟随系统', light: '浅色', dark: '深色' }[theme.mode]);
   const enabledCount = $derived(registry.plugins.filter((p) => !p.core && registry.isEnabled(p.id)).length);
@@ -34,8 +35,9 @@
   <Cell title="锁屏与 Key 加密" value={lock.enabled ? '已开' : '关'} icon={{ paths: icons.lock, background: gradients.orange }} chevron onclick={() => nav.push('settings', 'lock')} />
 </List>
 <SectionTitle text="数据" />
-<List footer="数据只在这台设备的浏览器里。定期导出一份，换手机或清了缓存也能导回来。">
+<List footer="数据只在这台设备的浏览器里。定期导出一份，换手机或清了缓存也能导回来；或者填一个自己的 WebDAV，几台设备之间自动合并。">
   <Cell title="备份与恢复" icon={{ paths: icons.receipt, background: gradients.green }} chevron onclick={() => nav.push('settings', 'data')} />
+  <Cell title="多端同步" value={sync.configured ? (sync.running ? '同步中' : sync.error ? '上次失败' : '已开') : '关'} icon={{ paths: icons.transfer, background: gradients.blue }} chevron onclick={() => nav.push('settings', 'sync')} />
 </List>
 <SectionTitle text="关于" />
 <List footer="日志只存在本机，记的是决策和结果（为什么合并、请求花了多少、哪里出错），不记聊天正文。出问题时复制发给开发者。">

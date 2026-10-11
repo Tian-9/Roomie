@@ -86,7 +86,7 @@ roomie/
       dates/             纪念日：生日、纪念日、倒数日
       weather/           天气：你那边今天什么天气
       review/            复盘：早安 + 昨天的复盘、周小结
-      settings/          API、外观、插件开关、日志、整库导出导入
+      settings/          API、外观、插件开关、锁屏、日志、整库导出导入、多端同步
     main.ts              启动：内核 → 注册插件 → 挂载 shell
 ```
 
@@ -96,7 +96,7 @@ roomie/
 
 内核表（M1 起，见 `src/kernel/storage/db.ts`）：`home`、`characters`、`conversations`、`messages`、`memories`、`notes`、`kv`、`usage`、`logs`。Pocketverse 的 `worlds`、`lore`、`overlays`、`campaigns` 已删除；旧库打开时 Dexie 会删掉这些表，`memfs` 因为主键变了（Dexie 不能改主键）换成了 `notes`。
 
-备份：设置 → 数据 → 导出全部，把 `db.tables` 里除 `logs` / `usage` 之外的每张表（含插件表）打成一个 JSON（`src/plugins/settings/backup.ts`），Blob 转 base64，文件头 `{ app: 'roomie', kernel, schema, exportedAt }`。导入先预览再整库替换（一个事务里清空再写，失败回滚），只接受内核版本相同的备份；备份里有而当前没装的插件表跳过。以后的多端同步建在这个格式上。
+备份：设置 → 数据 → 导出全部，把 `db.tables` 里除 `logs` / `usage` 之外的每张表（含插件表）打成一个 JSON（`src/plugins/settings/backup.ts`），Blob 转 base64，文件头 `{ app: 'roomie', kernel, schema, exportedAt }`。导入先预览再整库替换（一个事务里清空再写，失败回滚），只接受内核版本相同的备份；备份里有而当前没装的插件表跳过。多端同步（6.6）建在这个格式上。
 
 ```ts
 // 他：人设卡。可以有好几张（换人设），但下面的东西都不跟卡走
@@ -202,10 +202,22 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 - **Key 加密**（`src/kernel/lock/crypto.ts`）：PBKDF2-SHA256（600k 次，`iter` 存在记录里以后可调）+ 随机 16 字节盐 → AES-256-GCM，12 字节随机 nonce。密文存 kv `kernel.lock`（`LockRecord`：`pinLength`、`idleMinutes`、`sealed`、`hasKey`）。开了锁屏后 kv `kernel.llm` 里的 `apiKey` 永远是空串：网关 `Gateway.save` 把 Key 交给挂进来的 `vault`（`KeyVault` 接口：`persist` / `ready` / `sealed`）加密另存。PIN 错 = GCM 校验失败，不另存校验值。
 - **何时锁**：启动时只要有 `kernel.lock` 就锁；从后台回来（`visibilitychange`）超过 `idleMinutes` 分钟就锁（0 立即，-1 只在打开时）。锁屏是 `shell/LockScreen.svelte`，盖在所有界面和发送前预览之上（z 90），不进导航栈。
 - **锁着时模型调用怎么办**：`llm.configured` 在锁着且封了 Key 时为真，所以补发、记忆整理不会误判成"没填 Key"而放弃；`Gateway.chat` / `ping` 先 `await vault.ready()`，解锁后才真的发。
-- **忘了 PIN**：唯一出路是"清除 Key 重新填"（锁屏页和设置页都有）：删 `kernel.lock`、把 `kernel.llm.apiKey` 写成空、关锁屏，其他数据一样不动。
+- **忘了 PIN**：唯一出路是"清除 Key 重新填"（锁屏页和设置页都有）：删 `kernel.lock`、把 `kernel.llm.apiKey` 写成空、关锁屏，其他数据一样不动（用 PIN 封着的其他密文也一起没了，只能重填）。
 - **防连点**：连错 5 次冷却 30 秒，只在内存里，刷新就清零。不要把它说成防暴力破解。
 - **插件的秘密**（`ctx.secrets.get / set / locked`）：Bot Token、同步密码这类东西和 Key 同一套保管。没开锁屏时明文在 kv `secret.plugin.<id>.<key>`；开锁屏那一刻全部封进 `LockRecord.secrets`（每个秘密一份 `Sealed`，和 Key 同一把密钥、同一个盐，nonce 各自随机）并删掉 kv 明文；关锁屏解出来写回 kv；改 PIN 一起重封；忘了 PIN 清 Key 时也一起清掉。锁着时 `get` 和模型调用一样等到解锁，定时发东西的插件先看 `locked` 决定要不要等。
 - **备份**：整库导出照常导 `kv`，所以开了锁屏的备份里 Key 是密文（`kernel.lock`），`kernel.llm.apiKey` 为空；导入到别的设备后用同一个 PIN 解锁即可。没开锁屏时备份里 Key 仍是明文，数据页的说明会按开没开分别写清楚。对话在备份里始终是明文，不加密。
+
+### 6.6 多端同步
+
+没有 Roomie 的服务器。你填一个自己的 WebDAV（Nextcloud、rclone serve webdav、dufs……），几台设备各自和服务器上的一份文件做合并。代码在 `src/plugins/settings/`：`webdav.ts`（够用的客户端）、`merge.ts`（合并，纯函数）、`sync.svelte.ts`（控制器）、`Sync.svelte`（设置 → 数据 → 多端同步）。
+
+- **同步单位**：整库备份格式（6.2 之前那段说的 `backup.ts` 的 JSON），服务器上只有一个 `<文件夹>/roomie.json`，加一个 `conflicts/` 目录。`logs` / `usage` 不同步；kv 里 `kernel.lastSeen` 和所有以 `.cache` 结尾的 key（天气预报缓存等）是本机缓存，不进文件、合并时也不碰。插件要存不该同步的缓存，key 以 `.cache` 结尾即可。
+- **三方合并，按表按主键**：这台设备记着上次同步完的样子（base）。每一行：两边一样就是它；只有一边和 base 不同就用改过的那边（删掉也算改）；两边都改了才算冲突，行里有数字 `updatedAt` 就大的赢，没有就按两边的最后写入时间（本地最后一次写库 vs 远端文件的 `exportedAt`）；一边删一边改，改的赢。`home` 和 `kv` 的冲突静默处理（只记日志、不留副本）：`lastActiveAt`、`catchupAt`、插件的「今天说过了」每台设备都在写，不是你的内容。第一次同步没有 base，撞上的只会是单例和设置项（`home`、kv），这时服务器那份赢，新设备跟着它。这边没装的插件的表原样放行，那边没有的表留这边的，谁都不替别人删表。写回本地只写有差的行，正在进行的对话不受影响；拉到 `kernel.*` 的设置项时重新打开页面（它们是启动时读进内存的）。
+- **并发**：PUT 带 `If-Match: <上次的 ETag>`（第一次 `If-None-Match: *`），别的设备抢先写了就 412，整个流程重来一遍把它写的也合进来，最多三次。服务器文件没变（ETag 相同）就不下载。
+- **冲突副本**：有冲突时，输掉的一方当时的整份快照先传到 `conflicts/<时间>-<设备名>-本机|远端.json`，再动真文件。设置页能列出、预览、整库换回来（之后再同步会把它推上去）、删掉。它是完整备份，也能用「从备份导入」恢复。
+- **什么时候同步**：打开时、从后台回来超过一分钟、本地写库后十五秒（`Dexie.on('storagemutated')`，合并写回时不算）、手动点。自动同步可关。离线就跳过。
+- **存在哪**：服务器地址、账号、文件夹、自动开关在 kv `kernel.sync`，随数据同步；密码走 6.5 说的插件秘密（`secret.plugin.settings.webdav`，开了锁屏就被 PIN 封着；`lock.hasSecret` 锁着时也能答有没有存过）；base、ETag、设备名放在另一个只在本机的 IndexedDB 库 `roomie-sync` 里，整库导入导出碰不到它。
+- **诚实的限制**：浏览器直连 WebDAV 受跨域限制，服务器得返回 `Access-Control-Allow-Origin`、允许 PUT / MKCOL / PROPFIND 和 `Authorization` / `If-Match` / `Depth` 头、暴露 `ETag`。自建的能配（Nextcloud 装 WebAppPassword 之类，或反代加头），坚果云不放跨域，网页里连不上。没开锁屏时密码明文在 kv `secret.*`（和 API Key 一样），而且会随 kv 同步到服务器；开了锁屏两者都是密文。备份文件本身不加密。GitHub Gist 作为第二种后端留了口子（`WebDav` 换成同样 stat / get / put 形状的类即可），这版没做。
 
 ## 7. 里程碑
 

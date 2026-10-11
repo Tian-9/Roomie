@@ -251,6 +251,12 @@ class Lock {
     await db().setKV(LOCK_KV, this.record);
   }
 
+  /** 有没有存过这一项（锁着时也能答，不用解）：设置页锁着时也要知道"填过密码没" */
+  async hasSecret(name: string): Promise<boolean> {
+    if (!this.record) return !!(await db().getKV<string>(SECRET_PREFIX + name, ''));
+    return !!this.record.secrets?.[name];
+  }
+
   /** 核对一下 PIN，设置页里改东西前用 */
   async verify(pin: string): Promise<boolean> {
     if (!this.record) return true;
