@@ -112,6 +112,8 @@ class Lock {
       this.locked = false;
       this.failures = 0;
       this.cooldownUntil = 0;
+      // 别的设备同步过来的锁：这台设备自己存的明文秘密还散在 kv 里，现在有密钥了，收进来
+      await this.adoptLoose();
       const w = this.waiters.splice(0);
       for (const r of w) r();
       log.info('lock', '已解锁');
@@ -255,6 +257,28 @@ class Lock {
   async hasSecret(name: string): Promise<boolean> {
     if (!this.record) return !!(await db().getKV<string>(SECRET_PREFIX + name, ''));
     return !!this.record.secrets?.[name];
+  }
+
+  /**
+   * 开着锁屏却在 kv 里发现明文 secret.*：多半是多端同步把另一台设备的锁拉过来了，而这台设备在那之前自己存过密码。
+   * 封进记录里（记录里已有同名的就以记录为准）并删掉明文。只在解锁后、手里有密钥时做。
+   */
+  private async adoptLoose(): Promise<void> {
+    if (!this.record || !this.key) return;
+    const rows = await db().kv.where('key').startsWith(SECRET_PREFIX).toArray();
+    if (!rows.length) return;
+    const secrets = { ...(this.record.secrets ?? {}) };
+    for (const r of rows) {
+      const name = r.key.slice(SECRET_PREFIX.length);
+      const v = typeof r.value === 'string' ? r.value : '';
+      if (!v || secrets[name]) continue;
+      secrets[name] = await sealWith(v, this.key, this.record.sealed);
+      this.plain.set(name, v);
+    }
+    this.record = { ...this.record, secrets };
+    await db().setKV(LOCK_KV, this.record);
+    await db().kv.bulkDelete(rows.map((r) => r.key));
+    log.info('lock', '把散在 kv 里的明文秘密收进了锁里', { names: rows.map((r) => r.key.slice(SECRET_PREFIX.length)) });
   }
 
   /** 核对一下 PIN，设置页里改东西前用 */

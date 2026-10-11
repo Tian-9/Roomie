@@ -15,15 +15,34 @@ Roomie is the real-world fork of [Pocketverse](https://github.com/Tian-9/pocketv
 
 ## Status
 
-**M2: capability packs.** After M1 removed lorebooks, worlds and save slots, this round moves someone in and gives them things to do:
+**M3: out of the browser.** Once they could chat, remember and remind, this round locks the door, hooks up your phone and links several devices:
 
 - **Onboarding**: pick who moves in (three built-in personas, a one-line description the model turns into one, or a card import), enter a Claude API key, and they speak first: an introduction and three questions (what to call you, when you sleep, what you are busy with), then you are straight in the conversation.
-- **Six packs**: ledger (say "lunch 32" in chat and it is recorded), habits (things to keep up, check-ins, streaks), schedule ("meeting tomorrow at 3" gets recorded and reminded), dates (birthdays and countdowns, lunar too), weather (what it is like where you are, with a word when it turns cold or rainy) and review (come back after a day and they say good morning and talk about yesterday; a weekly summary on Sunday night). All plugins, all switchable in settings.
-- **Catch-up on open**: how long you were away decides what they say, and every plugin's line is merged into one message from them.
-- **Backup**: export the whole database as one JSON from settings and import it on a new phone.
+- **Seven packs**: ledger (say "lunch 32" in chat and it is recorded), habits (things to keep up, check-ins, streaks), schedule ("meeting tomorrow at 3" gets recorded and reminded), dates (birthdays and countdowns, lunar too), weather (what it is like where you are, with a word when it turns cold or rainy), review (come back after a day and they say good morning and talk about yesterday; a weekly summary on Sunday night) and moments (a line or two about your last few days; heart it or answer it in chat). All plugins, all switchable in settings.
+- **Catch-up on open**: how long you were away decides what they say, every plugin's line is merged into one message from them, and good morning is said once.
+- **Lock screen and key encryption**: set a 4–6 digit PIN, required on open and after coming back from the background; the API key, the Bot token and the sync password are sealed with it, so neither the browser database nor a backup file holds them in plaintext.
+- **Telegram push** (off by default): while the page is open, reminders and what they say on your return are also sent to Telegram on your phone; you create your own bot.
+- **Backup and multi-device sync**: export the whole database as one JSON from settings and import it on a new phone, or point several devices at your own WebDAV and they merge row by row, keeping a conflict copy when both sides changed the same row.
 - **Voice**: a mic in the composer, read-aloud on their messages, voice picked in the persona; browser built-ins only, no third-party TTS.
 
-Next steps are in section 7 of the architecture doc: Telegram push and a PIN-encrypted key.
+What comes next is M4 in section 7 of the architecture doc.
+
+## Getting started
+
+**Try this first**
+
+1. Open the page, pick who moves in (or describe them in one line and let the model write the persona), enter your key, answer their three questions.
+2. Chat a little and drop in "lunch was 32", "meeting tomorrow at 3pm", "mum's birthday is Oct 14": the ledger, schedule and dates apps on the home screen should now have them.
+3. Close the page and open it the next morning: they say good morning, talk about yesterday, and a new post shows up in Moments. Too impatient? Move the phone's clock a day ahead.
+4. Settings → Plugins: switch off what you do not want; the icons disappear.
+
+**What you set up yourself**
+
+- **Claude API key**: get one at [console.anthropic.com](https://console.anthropic.com/) and enter it under Settings → API (or in step two of onboarding). It stays in this device's browser; usage is pay-as-you-go and the settings page shows this month's spend.
+- **GitHub Pages** (needed to use it as an app on your phone): after forking or pushing to your own repository, open the repository's Settings → Pages and set Source to **GitHub Actions**; every push to `main` then deploys, and "Add to Home Screen" in the phone browser installs it. Without that setting the deploy workflow fails with a 404.
+- **Telegram bot** (optional): message [@BotFather](https://t.me/BotFather) with `/newbot` to get a token; enable Telegram under Settings → Plugins, open the Telegram app on the home screen, paste the token, send your bot any message, then tap "Find me". This page is the sender: nothing is sent while it is closed (leave a tab open on a computer), and replies typed in Telegram never reach them.
+- **WebDAV** (optional, for sync): you need a WebDAV server that allows cross-origin requests. Your own Nextcloud (with an app such as WebAppPassword that opens CORS, or a reverse proxy adding `Access-Control-Allow-Origin` and friends), `rclone serve webdav` and `dufs` all work; Nutstore (坚果云) does not allow CORS and cannot be reached from a web page. The server must allow `PUT / MKCOL / PROPFIND`, accept the `Authorization / If-Match / Depth` headers and expose `ETag`. Enter it under Settings → Sync and press "Test" before saving.
+- **Lock screen** (recommended): Settings → Lock screen. The PIN is stored nowhere; if you forget it, the only way out is clearing the key and entering it again, everything else is kept.
 
 ## Development
 

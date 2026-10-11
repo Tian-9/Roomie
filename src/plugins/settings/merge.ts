@@ -34,6 +34,23 @@ export function stripLocal(tables: Tables): Tables {
   return out;
 }
 
+/** kv 里开了锁屏的标记行；有它在，明文 secret.* 就不该出现在同一份文件里 */
+export const LOCK_KV_KEY = 'kernel.lock';
+export const SECRET_KV_PREFIX = 'secret.';
+
+/**
+ * 推上去之前：合完的 kv 里有 kernel.lock（这台或别的设备开了锁屏），就不带明文 secret.*。
+ * 典型情况：新设备没开锁，先填了同步密码，第一次同步拉到另一台设备的锁；它的明文密码不该跟着锁一起躺在服务器上。
+ * 本机那几行留着，解锁时内核会把它们封进锁里再删掉。返回新对象。
+ */
+export function stripLooseSecrets(tables: Tables): Tables {
+  const kv = tables.kv;
+  if (!kv || !kv.some((r) => r.key === LOCK_KV_KEY)) return tables;
+  const loose = kv.filter((r) => typeof r.key === 'string' && (r.key as string).startsWith(SECRET_KV_PREFIX));
+  if (!loose.length) return tables;
+  return { ...tables, kv: kv.filter((r) => !loose.includes(r)) };
+}
+
 /** 键排序后的 JSON：同样的内容一定得到同样的字符串 */
 export function canon(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined';

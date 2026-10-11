@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canon, stripLocal, merge, rowKey, hasLocalChanges, touchesKernelKv, changedTables, fingerprint, type Tables } from './merge';
+import { canon, stripLocal, stripLooseSecrets, merge, rowKey, hasLocalChanges, touchesKernelKv, changedTables, fingerprint, type Tables } from './merge';
 
 const kp = (t: string) => (t === 'notes' ? 'path' : t === 'unknown_here' ? null : t === 'pair' ? ['a', 'b'] : 'id');
 const opts = (localTime = 100, remoteTime = 50) => ({ keyPath: kp, localTime, remoteTime });
@@ -16,6 +16,14 @@ describe('canon / strip', () => {
     expect(s.kv!.map((r) => r.key)).toEqual(['kernel.llm']);
     expect(s.messages).toEqual([{ id: 'm' }]);
     expect(t.kv!.length).toBe(3); // 原对象不动
+  });
+  it('有 kernel.lock 的文件不带明文 secret.*；没锁就原样', () => {
+    const locked: Tables = { kv: [{ key: 'kernel.lock', value: { v: 1 } }, { key: 'secret.plugin.settings.webdav', value: 'pw' }, { key: 'kernel.sync', value: {} }] };
+    expect(stripLooseSecrets(locked).kv!.map((r) => r.key)).toEqual(['kernel.lock', 'kernel.sync']);
+    expect(locked.kv).toHaveLength(3);
+    const open: Tables = { kv: [{ key: 'secret.plugin.settings.webdav', value: 'pw' }] };
+    expect(stripLooseSecrets(open)).toBe(open);
+    expect(stripLooseSecrets({ notes: [] })).toEqual({ notes: [] });
   });
   it('复合主键', () => {
     expect(rowKey({ a: 1, b: 'x' }, ['a', 'b'])).toBe(rowKey({ b: 'x', a: 1 }, ['a', 'b']));

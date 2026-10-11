@@ -209,6 +209,36 @@ describe('lock', () => {
     expect(lock.locked).toBe(true);
   });
 
+  it('别的设备同步来的锁：解锁时把 kv 里散落的明文秘密收进锁里，已有的不覆盖', async () => {
+    // 设备 A 开了锁、存了 token 和同步密码
+    const a = await fresh();
+    await a.llm.boot();
+    await a.llm.save({ apiKey: 'sk-ant-a' });
+    await a.lock.boot({ iter: ITER });
+    await a.lock.enable('1234');
+    await a.lock.setSecret('plugin.settings.webdav', 'pw-from-a');
+    const rec = await a.db.getKV<LockRecord | null>('kernel.lock', null);
+    // 设备 B 没开锁，自己存过密码和一个 A 没有的秘密，然后同步把 A 的 kernel.lock 拉了过来
+    const b = await fresh();
+    await b.llm.boot();
+    await b.db.setKV('secret.plugin.settings.webdav', 'pw-from-b');
+    await b.db.setKV('secret.plugin.other.key', 'only-b');
+    await b.db.setKV('kernel.lock', rec);
+    await b.lock.boot({ iter: ITER });
+    expect(b.lock.locked).toBe(true);
+    await b.lock.unlock('1234');
+    const kv = await b.db.kv.toArray();
+    expect(kv.some((r) => r.key.startsWith('secret.'))).toBe(false);
+    expect(JSON.stringify(kv)).not.toContain('pw-from-b');
+    expect(JSON.stringify(kv)).not.toContain('only-b');
+    expect(await b.lock.getSecret('plugin.settings.webdav')).toBe('pw-from-a');
+    expect(await b.lock.getSecret('plugin.other.key')).toBe('only-b');
+    // 锁一下再解：收进去的秘密是真封进了记录，不只是内存里
+    b.lock.lockNow();
+    await b.lock.unlock('1234');
+    expect(await b.lock.getSecret('plugin.other.key')).toBe('only-b');
+  });
+
   it('插件秘密跟着改 PIN、关锁屏、忘 PIN 走', async () => {
     const { db, llm, lock } = await fresh();
     await llm.boot();

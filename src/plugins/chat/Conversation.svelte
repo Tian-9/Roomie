@@ -7,7 +7,7 @@
   import { chat } from '$kernel/chat/engine.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { toolLabel } from '$kernel/context/tools';
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
@@ -23,7 +23,8 @@
   const liveTurn = $derived(chat.live[id]);
   const status = $derived(liveTurn?.status ?? 'idle');
 
-  let draft = $state(initialDraft);
+  // 只取进来时的那一句当初始值，之后由输入框自己维护
+  let draft = $state(untrack(() => initialDraft));
   let menu = $state(false);
   // 「+」面板：插件登记的动作（歌曲、红包…）
   let panel = $state(false);

@@ -15,7 +15,7 @@ import { bus } from '$kernel/bus/bus';
 import { log } from '$kernel/log/log';
 import { lock } from '$kernel/lock/lock.svelte';
 import { exportBackup, importBackup, parseBackup, decodeValue, SKIP_TABLES, type Backup } from './backup';
-import { merge, stripLocal, withTables, hasLocalChanges, touchesKernelKv, changedTables, type Tables, type Row, type MergeResult } from './merge';
+import { merge, stripLocal, stripLooseSecrets, withTables, hasLocalChanges, touchesKernelKv, changedTables, type Tables, type Row, type MergeResult } from './merge';
 import { WebDav, DavError, normalizeUrl, isValidUrl, type Entry, type FetchLike } from './webdav';
 
 export interface SyncConfig {
@@ -278,7 +278,7 @@ export class Sync {
     // 推：先推再写本地，推失败（412）本地什么都没动，重来即可
     let pushed = false;
     if (res.remoteDiffers) {
-      const file = withTables(head, res.merged, now);
+      const file = withTables(head, stripLooseSecrets(res.merged), now);
       etag = await dav.put(path, JSON.stringify(file), st ? { ifMatch: etag || undefined } : { ifNoneMatch: true });
       pushed = true;
     }

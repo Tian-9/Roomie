@@ -86,6 +86,8 @@ roomie/
       dates/             纪念日：生日、纪念日、倒数日
       weather/           天气：你那边今天什么天气
       review/            复盘：早安 + 昨天的复盘、周小结
+      moments/           动态：他对你这几天的一两句碎碎念，可点心、回他一句
+      telegram/          Telegram 推送（默认不开）：页面开着时把到点提醒和他回来说的话发到手机
       settings/          API、外观、插件开关、锁屏、日志、整库导出导入、多端同步
     main.ts              启动：内核 → 注册插件 → 挂载 shell
 ```
@@ -217,6 +219,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 - **冲突副本**：有冲突时，输掉的一方当时的整份快照先传到 `conflicts/<时间>-<设备名>-本机|远端.json`，再动真文件。设置页能列出、预览、整库换回来（之后再同步会把它推上去）、删掉。它是完整备份，也能用「从备份导入」恢复。
 - **什么时候同步**：打开时、从后台回来超过一分钟、本地写库后十五秒（`Dexie.on('storagemutated')`，合并写回时不算）、手动点。自动同步可关。离线就跳过。
 - **存在哪**：服务器地址、账号、文件夹、自动开关在 kv `kernel.sync`，随数据同步；密码走 6.5 说的插件秘密（`secret.plugin.settings.webdav`，开了锁屏就被 PIN 封着；`lock.hasSecret` 锁着时也能答有没有存过）；base、ETag、设备名放在另一个只在本机的 IndexedDB 库 `roomie-sync` 里，整库导入导出碰不到它。
+- **锁跟着同步走**：`kernel.lock` 在 kv 里，所以一台设备开了锁屏，同步后别的设备重开也是锁屏，同一个 PIN 解开，封在里面的 Key / Token / 密码一起到手。反过来的坑：新设备没开锁、先填了同步密码（明文 `secret.*`），第一次同步拉到了别人的锁。两道保险：推上去的文件里只要有 `kernel.lock` 就不带明文 `secret.*`（`stripLooseSecrets`，本机那几行先留着）；解锁时内核发现 kv 里还有明文 `secret.*`，封进锁里（锁里已有同名的以锁里为准）再删掉明文（`lock.adoptLoose`）。
 - **诚实的限制**：浏览器直连 WebDAV 受跨域限制，服务器得返回 `Access-Control-Allow-Origin`、允许 PUT / MKCOL / PROPFIND 和 `Authorization` / `If-Match` / `Depth` 头、暴露 `ETag`。自建的能配（Nextcloud 装 WebAppPassword 之类，或反代加头），坚果云不放跨域，网页里连不上。没开锁屏时密码明文在 kv `secret.*`（和 API Key 一样），而且会随 kv 同步到服务器；开了锁屏两者都是密文。备份文件本身不加密。GitHub Gist 作为第二种后端留了口子（`WebDav` 换成同样 stat / get / put 形状的类即可），这版没做。
 
 ## 7. 里程碑
@@ -226,7 +229,8 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 | **M0 搬家** ✅ | 从 Pocketverse 搬骨架：内核全留，插件只留信息 / 他 / 日记 / 设置；删掉世界书、风格、剧情插件；改名 | `npm run lint` 和 `npm run build` 过，能导入一张卡、配 Key、聊天、补写日记 |
 | **M1 一个人** ✅ | 记忆改挂用户：删 `worlds` / `lore` / `overlays` / `campaigns` 表和相关内核代码、lorebook / preset / stChat 导入器，`Campaign` 退化为 `home` 单例，界面上去掉"世界 / 存档 / 剧情时间"；插件接口去掉 `campaignId`，加 `ctx.data.messages()`、`triggers`、补发 `say` | 换人设后他仍记得你；旧库打开能升级；设置和主页里看不到任何"世界 / 存档" |
 | **M2 能力包** ✅ | 首次打开引导（他自我介绍、问你几个问题，答案进用户画像）；记账、习惯、日程提醒、纪念日、天气、复盘六个插件；补发做成"打开时他跟你说早安 + 昨日小结"；整库导出导入 | 清库打开走完引导能聊天；开关插件桌面随之变化；离开一天回来有早安和复盘；说"昨天花了多少"他能答 |
-| M3 走出浏览器 | Telegram Bot 推送插件；PIN 加密 Key | 关掉网页也能在 Telegram 收到他的消息 |
+| **M3 走出浏览器** ✅ | 锁屏 PIN + Key 加密（插件的秘密一起封）；动态插件；Telegram 推送插件；自带 WebDAV 的多端同步（按行三方合并、冲突副本） | 开了锁屏后库里和备份里都没有明文 Key / Token / 密码，同一个 PIN 在另一台设备解得开；复盘、动态、Telegram 在同一次补发里各做各的，手机上只收一条；两台设备各聊各的，同步后两边一样 |
+| M4 打磨 | Gist 作为第二种同步后端；补发档位做成设置项；Periodic Background Sync 作为可选增强；更多能力包（厨房、阅读） | 按需 |
 
 ## 8. 文案
 
