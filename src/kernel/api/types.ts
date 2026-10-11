@@ -235,6 +235,15 @@ export interface PluginContext {
     get<T>(key: string, fallback: T): Promise<T>;
     set<T>(key: string, value: T): Promise<void>;
   };
+  /**
+   * 本插件的秘密（Bot token、同步密码…）：和 API Key 同一套保管方式，开了锁屏就用 PIN 封起来，没开就明文在 kv。
+   * 锁着时 get 会等到解锁；定时发东西这类不想等的，先看 locked。空串表示没有。
+   */
+  secrets: {
+    get(key: string): Promise<string>;
+    set(key: string, value: string): Promise<void>;
+    readonly locked: boolean;
+  };
   /** 本插件在 manifest.storage 里声明的表 */
   table<T = unknown>(name: string): Table<T, any>;
   /** 调模型，自动记账到本插件名下 */

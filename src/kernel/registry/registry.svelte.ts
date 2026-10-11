@@ -3,6 +3,7 @@ import { bus } from '../bus/bus';
 import { db, pluginTable } from '../storage/db';
 import { dataView } from '../data/view';
 import { llm } from '../llm/gateway.svelte';
+import { lock } from '../lock/lock.svelte';
 import { CONSOLIDATE_MODEL } from '../memory/consolidate';
 import { nav } from '../nav/nav.svelte';
 
@@ -117,6 +118,11 @@ function makeContext(id: string): PluginContext {
     settings: {
       get: (key, fallback) => db().getKV(`plugin.${id}.${key}`, fallback),
       set: (key, value) => db().setKV(`plugin.${id}.${key}`, value),
+    },
+    secrets: {
+      get: (key) => lock.getSecret(`plugin.${id}.${key}`),
+      set: (key, value) => lock.setSecret(`plugin.${id}.${key}`, value),
+      get locked() { return lock.locked; },
     },
     table: (name) => db().table(pluginTable(id, name)),
     llm: {

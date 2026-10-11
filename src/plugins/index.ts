@@ -10,6 +10,7 @@ import dates from './dates';
 import weather from './weather';
 import review from './review';
 import moments from './moments';
+import telegram from './telegram';
 
 /** 内置插件清单。顺序决定桌面图标顺序。 */
-export const builtinPlugins: PluginManifest[] = [chat, characters, diary, ledger, habits, schedule, dates, weather, review, moments, settings];
+export const builtinPlugins: PluginManifest[] = [chat, characters, diary, ledger, habits, schedule, dates, weather, review, moments, telegram, settings];

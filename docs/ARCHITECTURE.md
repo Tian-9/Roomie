@@ -174,6 +174,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 - `dates` 纪念日 / 倒数日（`src/plugins/dates`，已实现）：`p_dates_dates` 表（`id, month, day`，字段 title / month / day / year? / lunar / kind）；工具 `date_add` / `date_list` / `date_remove`，kind 分生日、纪念日（每年过，记了年份算几岁 / 几周年）和倒数日（只有那一天）；`date` 卡片；`volatile` 一行七天内的日子（没有就不注入）加一句 stable 的记法说明；补发 `attach` 档今天或明天有日子他顺口提一句（每次只提一回）；主页上挂最近的一个；农历日子通过 `ctx.service('lunar')` 从日程插件拿换算，日程没开就只支持公历；服务 `dates`（`upcoming(days)` / `summary()`）。
 - `weather` 天气（`src/plugins/weather`，已实现）：Open-Meteo 预报 + 空气质量 + 城市搜索，不要 Key；定位（反查地名）或手选城市，地点和预报缓存存 `settings`，每小时最多拉一次；`volatile` 一行「你那边：北京 12°C 小雨，今天 8~15°C，空气良」，没有触发词（每轮一行，没设地点或拉不到就不带）；补发 `attach` 档早上 5–11 点只在明显变化时（降温 / 升温 ≥ 5°C、有雨雪、风大、空气差、高温 / 严寒）提一句，一天一次；界面一屏：当前 + 24 小时 + 7 天 + 日出日落；网络失败静默退回缓存，聊天不受影响；服务 `weather`（`line()` 一行、`today()` 结构化的今天含 `notes`、`place()`），复盘 / 早安插件拿今天天气用这个。
 - `moments` 动态（`src/plugins/moments`，已实现）：Pocketverse 朋友圈换个壳，他发的不是自己的剧情，是对你这几天的观察，一两句碎碎念。`p_moments_posts` 表（`id, characterId, date, createdAt`，字段 text / source 补发 · 聊天 · 手动 / liked / material 一行一项）；补发 `d1` 档「发一条」（和复盘拼在同一次调用里，没有 `say`，结果进动态页并 `notify`；离开几天看几天最多 3 天；一天最多一条）；材料和复盘同源：`ctx.data.messages()` 加 `ledger` / `habits` / `schedule` / `lunar` / `weather` 服务，没装不提；工具 `moments_post`（聊到值得记的事他顺手发一条）；`volatile` 最近三条带点没点心，触发词「动态、那条、你发的…」，提到才注入；动态页按时间列出，可点心、可「回他一句」——带着原文预填跳进和他的对话接着聊（内核加了 `ctx.data.conversationWith(characterId)` 和会话界面的 `draft` 参数），不另做评论；主页段「动态」最近一条；服务 `moments`（`latest()`）。
+- `telegram` Telegram 推送（`src/plugins/telegram`，已实现，默认不开）：Bot API 是普通 HTTPS，浏览器直连 `api.telegram.org`，不要服务器；Bot Token 存 `ctx.secrets`（开了锁屏就和 Key 一起被 PIN 封起来），chat id 和开关存 `settings`；设置页一屏：说明限制、填 Token（`getMe` 检查）、「找到我」（`getUpdates` 挑出你的私聊自动填 chat id）、发一条测试、两个开关、最近一次发送结果；`onEvent.notify` 把通知条（日程到点等）攒 2.5 秒合成一条发出去，`onEvent['catchup.done']` 把他刚合成的那条整段发出去并丢掉补发期间攒下的通知条（手机上只收一条）；工具 `telegram_send`（对方说"发到我 Telegram"），配好了才在 system 里加一句说明；发送队列按顺序发、超 4096 字分段、429 按 `retry_after` 等一次。诚实的限制写在设置页：发消息的是这个页面，页面全关着就没人发，在 Telegram 里回他他看不到。
 
 ### 6.3 推送
 
@@ -181,7 +182,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 
 - 前台开着：`scheduler` 每小时查一次补发，这是现成的。
 - 页面关着：不保证。Periodic Background Sync 只有 Chrome/Android 支持，作为可选增强。
-- 真要主动找你：做 Telegram Bot 插件（Bot API 是普通 HTTPS，浏览器直连，不需要服务器）。Email 收发走 Gmail API + 浏览器 OAuth。WhatsApp 不做。
+- 真要主动找你：`telegram` 插件（见 6.2）把到点提醒和他回来时说的话经 Bot API 发到手机上，仍然要这个页面开着（电脑上留一个标签页）。Email 收发走 Gmail API + 浏览器 OAuth。WhatsApp 不做。
 
 ### 6.4 首次引导
 
@@ -203,6 +204,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 - **锁着时模型调用怎么办**：`llm.configured` 在锁着且封了 Key 时为真，所以补发、记忆整理不会误判成"没填 Key"而放弃；`Gateway.chat` / `ping` 先 `await vault.ready()`，解锁后才真的发。
 - **忘了 PIN**：唯一出路是"清除 Key 重新填"（锁屏页和设置页都有）：删 `kernel.lock`、把 `kernel.llm.apiKey` 写成空、关锁屏，其他数据一样不动。
 - **防连点**：连错 5 次冷却 30 秒，只在内存里，刷新就清零。不要把它说成防暴力破解。
+- **插件的秘密**（`ctx.secrets.get / set / locked`）：Bot Token、同步密码这类东西和 Key 同一套保管。没开锁屏时明文在 kv `secret.plugin.<id>.<key>`；开锁屏那一刻全部封进 `LockRecord.secrets`（每个秘密一份 `Sealed`，和 Key 同一把密钥、同一个盐，nonce 各自随机）并删掉 kv 明文；关锁屏解出来写回 kv；改 PIN 一起重封；忘了 PIN 清 Key 时也一起清掉。锁着时 `get` 和模型调用一样等到解锁，定时发东西的插件先看 `locked` 决定要不要等。
 - **备份**：整库导出照常导 `kv`，所以开了锁屏的备份里 Key 是密文（`kernel.lock`），`kernel.llm.apiKey` 为空；导入到别的设备后用同一个 PIN 解锁即可。没开锁屏时备份里 Key 仍是明文，数据页的说明会按开没开分别写清楚。对话在备份里始终是明文，不加密。
 
 ## 7. 里程碑

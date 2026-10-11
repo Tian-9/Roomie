@@ -1,7 +1,7 @@
 import { db } from '../storage/db';
 import { llm } from '../llm/gateway.svelte';
 import { log } from '../log/log';
-import { seal, sealWith, open, isValidPin, WrongPinError, type Sealed } from './crypto';
+import { seal, sealWith, open, openWith, isValidPin, WrongPinError, type Sealed } from './crypto';
 
 /** kv `kernel.lock`：有这一行就是开了锁屏 */
 export interface LockRecord {
@@ -14,9 +14,13 @@ export interface LockRecord {
   sealed: Sealed;
   /** 封起来的是不是空字符串：锁着的时候界面也要知道"有没有 Key" */
   hasKey: boolean;
+  /** 插件的秘密（Bot token 之类），按名字各封一份，和 Key 用同一把密钥 */
+  secrets?: Record<string, Sealed>;
 }
 
 export const LOCK_KV = 'kernel.lock';
+/** 没开锁屏时插件秘密明文存在 kv 的这个前缀下；开了锁屏就搬进 LockRecord.secrets */
+export const SECRET_PREFIX = 'secret.';
 export const IDLE_OPTIONS: { minutes: number; label: string }[] = [
   { minutes: 0, label: '立即' },
   { minutes: 1, label: '1 分钟' },
@@ -47,6 +51,8 @@ class Lock {
   private record: LockRecord | null = null;
   /** 解锁后留在内存里的密钥，锁上时丢掉 */
   private key: CryptoKey | null = null;
+  /** 解锁后解出来的插件秘密，锁上时丢掉 */
+  private plain = new Map<string, string>();
   private waiters: (() => void)[] = [];
   private hiddenAt: number | null = null;
   private iter: number | undefined;
@@ -122,6 +128,7 @@ class Lock {
   lockNow() {
     if (!this.enabled || this.locked) return;
     this.key = null;
+    this.plain.clear();
     llm.setSecret('');
     this.locked = true;
     log.info('lock', '已锁屏');
@@ -133,8 +140,19 @@ class Lock {
     const apiKey = llm.settings.apiKey;
     const { sealed, key } = await seal(apiKey, pin, { iter: this.iter });
     this.key = key;
-    this.record = { v: 1, pinLength: pin.length, idleMinutes, sealed, hasKey: apiKey.trim().length > 0 };
+    // 插件的秘密一起搬进来：kv 里的明文封好后删掉
+    const rows = await db().kv.where('key').startsWith(SECRET_PREFIX).toArray();
+    const secrets: Record<string, Sealed> = {};
+    for (const r of rows) {
+      const name = r.key.slice(SECRET_PREFIX.length);
+      const v = typeof r.value === 'string' ? r.value : '';
+      if (!v) continue;
+      secrets[name] = await sealWith(v, key, sealed);
+      this.plain.set(name, v);
+    }
+    this.record = { v: 1, pinLength: pin.length, idleMinutes, sealed, hasKey: apiKey.trim().length > 0, ...(rows.length ? { secrets } : {}) };
     await db().setKV(LOCK_KV, this.record);
+    if (rows.length) await db().kv.bulkDelete(rows.map((r) => r.key));
     this.enabled = true;
     this.locked = false;
     this.pinLength = pin.length;
@@ -147,10 +165,16 @@ class Lock {
   /** 关锁屏：要 PIN；Key 解出来明文写回 kernel.llm */
   async disable(pin: string): Promise<void> {
     if (!this.record) return;
-    const { plain } = await open(this.record.sealed, pin);
+    const { plain, key } = await open(this.record.sealed, pin);
+    // 插件的秘密解出来明文写回 kv
+    for (const [name, sealed] of Object.entries(this.record.secrets ?? {})) {
+      const v = await openWith(sealed, key);
+      if (v) await db().setKV(SECRET_PREFIX + name, v);
+    }
     llm.vault = null;
     this.record = null;
     this.key = null;
+    this.plain.clear();
     this.enabled = false;
     this.locked = false;
     await db().kv.delete(LOCK_KV);
@@ -161,10 +185,12 @@ class Lock {
   async changePin(oldPin: string, newPin: string): Promise<void> {
     if (!this.record) return;
     if (!isValidPin(newPin)) throw new Error('PIN 要 4 到 6 位数字');
-    const { plain } = await open(this.record.sealed, oldPin);
+    const { plain, key: oldKey } = await open(this.record.sealed, oldPin);
     const { sealed, key } = await seal(plain, newPin, { iter: this.iter });
+    const secrets: Record<string, Sealed> = {};
+    for (const [name, old] of Object.entries(this.record.secrets ?? {})) secrets[name] = await sealWith(await openWith(old, oldKey), key, sealed);
     this.key = key;
-    this.record = { ...this.record, sealed, pinLength: newPin.length };
+    this.record = { ...this.record, sealed, pinLength: newPin.length, ...(this.record.secrets ? { secrets } : {}) };
     this.pinLength = newPin.length;
     await db().setKV(LOCK_KV, this.record);
     log.info('lock', '换了 PIN');
@@ -182,6 +208,7 @@ class Lock {
     llm.vault = null;
     this.record = null;
     this.key = null;
+    this.plain.clear();
     this.enabled = false;
     this.locked = false;
     this.failures = 0;
@@ -190,7 +217,38 @@ class Lock {
     await llm.save({ apiKey: '' });
     const w = this.waiters.splice(0);
     for (const r of w) r();
-    log.warn('lock', '忘了 PIN：清掉 Key，关了锁屏');
+    log.warn('lock', '忘了 PIN：清掉 Key 和插件的秘密，关了锁屏');
+  }
+
+  /**
+   * 插件的秘密（Bot token 之类）：没开锁屏时明文在 kv `secret.<name>`；开了就和 Key 一样用 PIN 封在 kernel.lock 里。
+   * 锁着时读会等到解锁，和模型调用一样；想不等就先看 locked。没有就是空串。
+   */
+  async getSecret(name: string): Promise<string> {
+    if (!this.record) return db().getKV<string>(SECRET_PREFIX + name, '');
+    await this.ready();
+    const cached = this.plain.get(name);
+    if (cached !== undefined) return cached;
+    const sealed = this.record?.secrets?.[name];
+    if (!sealed || !this.key) return '';
+    const v = await openWith(sealed, this.key);
+    this.plain.set(name, v);
+    return v;
+  }
+
+  /** 写插件的秘密；空串就是删掉。锁着时不能改。 */
+  async setSecret(name: string, value: string): Promise<void> {
+    if (!this.record) {
+      if (value) await db().setKV(SECRET_PREFIX + name, value);
+      else await db().kv.delete(SECRET_PREFIX + name);
+      return;
+    }
+    if (!this.key) throw new Error('锁着的时候不能改');
+    const secrets = { ...(this.record.secrets ?? {}) };
+    if (value) { secrets[name] = await sealWith(value, this.key, this.record.sealed); this.plain.set(name, value); }
+    else { delete secrets[name]; this.plain.delete(name); }
+    this.record = { ...this.record, secrets };
+    await db().setKV(LOCK_KV, this.record);
   }
 
   /** 核对一下 PIN，设置页里改东西前用 */

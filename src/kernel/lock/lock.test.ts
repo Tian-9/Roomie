@@ -165,4 +165,63 @@ describe('lock', () => {
     expect(await lock.verify('987654')).toBe(true);
     expect(await lock.verify('1234')).toBe(false);
   });
+
+  it('插件秘密：没开锁屏明文在 kv；开了搬进 kernel.lock，kv 里不再有明文；锁着时读要等解锁', async () => {
+    const a = await fresh();
+    await a.llm.boot();
+    await a.lock.boot({ iter: ITER });
+    await a.lock.setSecret('plugin.telegram.botToken', '123:tok-plain');
+    expect(await a.db.getKV('secret.plugin.telegram.botToken', '')).toBe('123:tok-plain');
+    expect(await a.lock.getSecret('plugin.telegram.botToken')).toBe('123:tok-plain');
+    await a.lock.setSecret('plugin.sync.pass', '');
+    expect(await a.lock.getSecret('plugin.sync.pass')).toBe('');
+
+    await a.lock.enable('1234');
+    expect(JSON.stringify(await a.db.kv.toArray())).not.toContain('tok-plain');
+    const rec = (await a.db.getKV<LockRecord | null>('kernel.lock', null))!;
+    expect(Object.keys(rec.secrets ?? {})).toEqual(['plugin.telegram.botToken']);
+    expect(await a.lock.getSecret('plugin.telegram.botToken')).toBe('123:tok-plain');
+    // 开着锁屏改：重封
+    await a.lock.setSecret('plugin.telegram.botToken', '123:tok-second');
+    expect(JSON.stringify(await a.db.kv.toArray())).not.toContain('tok-second');
+    expect(await a.lock.getSecret('plugin.telegram.botToken')).toBe('123:tok-second');
+
+    // 刷新：锁着，读要等
+    vi.resetModules();
+    vi.doMock('../storage/db', async () => ({ ...(await vi.importActual<typeof import('../storage/db')>('../storage/db')), db: () => a.db, openDB: () => a.db }));
+    const { llm } = await import('../llm/gateway.svelte');
+    const { lock } = await import('./lock.svelte');
+    await llm.boot();
+    await lock.boot({ iter: ITER });
+    expect(lock.locked).toBe(true);
+    let got = '';
+    const pending = lock.getSecret('plugin.telegram.botToken').then((v) => (got = v));
+    await Promise.resolve();
+    expect(got).toBe('');
+    await expect(lock.setSecret('plugin.telegram.botToken', 'x')).rejects.toThrow(/锁着/);
+    await lock.unlock('1234');
+    await pending;
+    expect(got).toBe('123:tok-second');
+    lock.lockNow();
+    expect(lock.locked).toBe(true);
+  });
+
+  it('插件秘密跟着改 PIN、关锁屏、忘 PIN 走', async () => {
+    const { db, llm, lock } = await fresh();
+    await llm.boot();
+    await llm.save({ apiKey: 'sk-ant-s' });
+    await lock.boot({ iter: ITER });
+    await lock.enable('1234');
+    await lock.setSecret('plugin.telegram.botToken', '9:tok');
+    await lock.changePin('1234', '5678');
+    expect(await lock.getSecret('plugin.telegram.botToken')).toBe('9:tok');
+    await lock.disable('5678');
+    expect(await db.getKV('secret.plugin.telegram.botToken', '')).toBe('9:tok');
+    expect(await lock.getSecret('plugin.telegram.botToken')).toBe('9:tok');
+    await lock.enable('0000');
+    expect(await db.getKV('secret.plugin.telegram.botToken', '')).toBe('');
+    await lock.reset();
+    expect(await lock.getSecret('plugin.telegram.botToken')).toBe('');
+    expect(await db.getKV('kernel.lock', null)).toBeNull();
+  });
 });
