@@ -25,6 +25,14 @@ export interface LlmSettings {
 
 const DEFAULTS: LlmSettings = { apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 4096, tools: true };
 
+/** 锁屏模块挂进来的保险箱：开了锁屏后 Key 不再明文写 kv，由它加密另存；锁着时调用要等解锁 */
+export interface KeyVault {
+  persist(apiKey: string): Promise<void>;
+  ready(): Promise<void>;
+  /** 锁着、而且里面确实封了一个 Key */
+  readonly sealed: boolean;
+}
+
 export interface UsageStats {
   todayUsd: number; monthUsd: number; requests: number;
   hitRate: number; // 最近 50 次请求的缓存命中率
@@ -36,6 +44,7 @@ class Gateway {
   settings = $state<LlmSettings>({ ...DEFAULTS });
   stats = $state<UsageStats>({ todayUsd: 0, monthUsd: 0, requests: 0, hitRate: 0, webSearches: 0 });
   private provider: LlmProvider | null = null;
+  vault: KeyVault | null = null;
 
   async boot() {
     this.settings = { ...DEFAULTS, ...(await db().getKV<Partial<LlmSettings>>('kernel.llm', {})) };
@@ -43,12 +52,22 @@ class Gateway {
   }
 
   get configured() {
-    return this.settings.apiKey.trim().length > 0;
+    return this.settings.apiKey.trim().length > 0 || !!this.vault?.sealed;
   }
 
   async save(patch: Partial<LlmSettings>) {
     this.settings = { ...this.settings, ...patch };
-    await db().setKV('kernel.llm', $state.snapshot(this.settings));
+    const snap = $state.snapshot(this.settings);
+    // 有保险箱时 Key 交给它加密另存，kv 里的 kernel.llm 只留空串（不要原地改 snap：SSR 下它就是 settings 本身）
+    if (this.vault) await this.vault.persist(snap.apiKey);
+    await db().setKV('kernel.llm', this.vault ? { ...snap, apiKey: '' } : snap);
+    this.provider = null;
+  }
+
+  /** 只改内存里的 Key，不落盘：锁屏解锁 / 锁上时用 */
+  setSecret(apiKey: string) {
+    if (this.settings.apiKey === apiKey) return;
+    this.settings = { ...this.settings, apiKey };
     this.provider = null;
   }
 
@@ -67,6 +86,7 @@ class Gateway {
       web: req.purpose === 'chat' && !!this.settings.web && this.settings.tools !== false,
       ...req,
     };
+    await this.vault?.ready();
     if (this.settings.preview) {
       log.info('llm', `预览：${full.purpose} 请求等你确认（${full.model}）`, { conversationId: full.conversationId });
       const ok = await gate.confirm(full);
@@ -91,6 +111,7 @@ class Gateway {
 
   /** 连通性测试：最小请求 */
   async ping(): Promise<string> {
+    await this.vault?.ready();
     const r = await this.p.chat({
       model: this.settings.model, maxTokens: 64, purpose: 'ping',
       system: [{ type: 'text', text: '只回复两个字：好的' }],

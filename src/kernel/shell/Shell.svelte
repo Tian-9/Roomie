@@ -3,6 +3,7 @@
   import ScreenHost from './ScreenHost.svelte';
   import Banner from './Banner.svelte';
   import PromptPreview from './PromptPreview.svelte';
+  import LockScreen from './LockScreen.svelte';
   import { registry } from '../registry/registry.svelte';
 </script>
 
@@ -12,6 +13,7 @@
     <ScreenHost />
     <Banner />
     <PromptPreview />
+    <LockScreen />
   {/if}
 </div>
 

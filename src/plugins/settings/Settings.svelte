@@ -7,6 +7,7 @@
   import { llm } from '$kernel/llm/gateway.svelte';
   import { MODELS } from '$kernel/llm/pricing';
   import { chat } from '$kernel/chat/engine.svelte';
+  import { lock } from '$kernel/lock/lock.svelte';
   const modelLabel = $derived(MODELS.find((m) => m.id === llm.settings.model)?.label ?? llm.settings.model);
   const modeLabel = $derived({ system: '跟随系统', light: '浅色', dark: '深色' }[theme.mode]);
   const enabledCount = $derived(registry.plugins.filter((p) => !p.core && registry.isEnabled(p.id)).length);
@@ -27,6 +28,10 @@
 <SectionTitle text="扩展" />
 <List footer="开关插件会即时增减桌面图标和 Dock 候选项。">
   <Cell title="插件" value={`${enabledCount} 个已开启`} icon={{ paths: icons.plug, background: gradients.black }} chevron onclick={() => nav.push('settings', 'plugins')} />
+</List>
+<SectionTitle text="安全" />
+<List footer="开了之后打开要输 PIN，API Key 也会加密存放。">
+  <Cell title="锁屏与 Key 加密" value={lock.enabled ? '已开' : '关'} icon={{ paths: icons.lock, background: gradients.orange }} chevron onclick={() => nav.push('settings', 'lock')} />
 </List>
 <SectionTitle text="数据" />
 <List footer="数据只在这台设备的浏览器里。定期导出一份，换手机或清了缓存也能导回来。">

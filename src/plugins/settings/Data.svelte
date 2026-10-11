@@ -7,6 +7,7 @@
   import { registry } from '$kernel/registry/registry.svelte';
   import { bus } from '$kernel/bus/bus';
   import { log } from '$kernel/log/log';
+  import { lock } from '$kernel/lock/lock.svelte';
   import { exportBackup, importBackup, parseBackup, summarizeBackup, backupFileName, type Backup, type BackupSummary } from './backup';
 
   const counts = live(async () => ({
@@ -92,7 +93,7 @@
 </List>
 
 <SectionTitle text="备份" />
-<List footer="所有数据只在这台设备的浏览器里，清了缓存就没了。导出的是一个 JSON 文件，包含人设（含头像）、对话、记忆、笔记、设置和各插件的数据；API Key 也在里面，别把文件发给别人。日志和用量不导。">
+<List footer={`所有数据只在这台设备的浏览器里，清了缓存就没了。导出的是一个 JSON 文件，包含人设（含头像）、对话、记忆、笔记、设置和各插件的数据；${lock.enabled ? 'API Key 是加密后的，要输同一个 PIN 才能解开，但对话内容是明文' : 'API Key 和对话都是明文'}，别把文件发给别人。日志和用量不导。`}>
   <Cell title="导出全部" icon={{ paths: icons.receipt, background: gradients.blue }} chevron onclick={exportAll} disabled={!!busy} />
 </List>
 <List footer="选一个之前导出的文件，先看预览再确认。导入会清空现在的全部数据再写入；确认前会自动先下载一份现在的数据，万一导错了可以再导回来。">

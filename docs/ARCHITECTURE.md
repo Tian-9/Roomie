@@ -59,6 +59,7 @@ roomie/
   src/
     kernel/              内核，插件不能绕过它
       shell/             锁屏、桌面、Dock、通知条
+      lock/              PIN 锁屏状态机 + WebCrypto 封装 API Key
       registry/          插件注册表、贡献点收集、services
       bus/               事件总线
       storage/           Dexie 实例、schema、插件表命名空间、live 查询
@@ -190,6 +191,18 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 3. **他开口**：用他的口吻生成一句自我介绍和三个问题（叫你什么、平时几点睡、最近在忙什么），没 Key 或生成失败就用兜底文案。第一个答案经 `cleanName` 写进 `kernel.userName`，后两个拼成 `kernel.userProfile`；整段对话原样写进和他的私聊（`meta.onboarding`），最后一句交给聊天引擎让他接着回，所以他第一句就会叫出你的名字。
 
 结束直接落在和他的对话里。空状态页（信息、他）也能手动再进引导。
+
+### 6.5 锁屏与 Key 加密
+
+目标是手机借人、浏览器被翻时对话和 Key 不裸露；诚实地说它防的是随手翻看，不是肯下功夫的人。
+
+- **PIN**：4–6 位数字，设置 → 安全 → 锁屏与 Key 加密。PIN 本身不存任何地方；解锁后内存里只留 PBKDF2 导出的、不可导出的 AES 密钥，锁上就丢。
+- **Key 加密**（`src/kernel/lock/crypto.ts`）：PBKDF2-SHA256（600k 次，`iter` 存在记录里以后可调）+ 随机 16 字节盐 → AES-256-GCM，12 字节随机 nonce。密文存 kv `kernel.lock`（`LockRecord`：`pinLength`、`idleMinutes`、`sealed`、`hasKey`）。开了锁屏后 kv `kernel.llm` 里的 `apiKey` 永远是空串：网关 `Gateway.save` 把 Key 交给挂进来的 `vault`（`KeyVault` 接口：`persist` / `ready` / `sealed`）加密另存。PIN 错 = GCM 校验失败，不另存校验值。
+- **何时锁**：启动时只要有 `kernel.lock` 就锁；从后台回来（`visibilitychange`）超过 `idleMinutes` 分钟就锁（0 立即，-1 只在打开时）。锁屏是 `shell/LockScreen.svelte`，盖在所有界面和发送前预览之上（z 90），不进导航栈。
+- **锁着时模型调用怎么办**：`llm.configured` 在锁着且封了 Key 时为真，所以补发、记忆整理不会误判成"没填 Key"而放弃；`Gateway.chat` / `ping` 先 `await vault.ready()`，解锁后才真的发。
+- **忘了 PIN**：唯一出路是"清除 Key 重新填"（锁屏页和设置页都有）：删 `kernel.lock`、把 `kernel.llm.apiKey` 写成空、关锁屏，其他数据一样不动。
+- **防连点**：连错 5 次冷却 30 秒，只在内存里，刷新就清零。不要把它说成防暴力破解。
+- **备份**：整库导出照常导 `kv`，所以开了锁屏的备份里 Key 是密文（`kernel.lock`），`kernel.llm.apiKey` 为空；导入到别的设备后用同一个 PIN 解锁即可。没开锁屏时备份里 Key 仍是明文，数据页的说明会按开没开分别写清楚。对话在备份里始终是明文，不加密。
 
 ## 7. 里程碑
 

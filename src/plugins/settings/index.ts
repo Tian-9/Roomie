@@ -8,14 +8,15 @@ import Rules from './Rules.svelte';
 import Logs from './Logs.svelte';
 import RawStream from './RawStream.svelte';
 import Data from './Data.svelte';
+import Lock from './Lock.svelte';
 
 export default definePlugin({
   id: 'settings',
   name: '设置',
   version: '0.1.0',
   core: true,
-  description: 'API、外观、插件开关、数据备份。',
+  description: 'API、外观、插件开关、锁屏、数据备份。',
   app: { screen: Settings, icon: { paths: icons.gear, background: gradients.gray } },
-  screens: { plugins: Plugins, appearance: Appearance, api: ApiSettings, rules: Rules, logs: Logs, rawstream: RawStream, data: Data },
+  screens: { plugins: Plugins, appearance: Appearance, api: ApiSettings, rules: Rules, logs: Logs, rawstream: RawStream, data: Data, lock: Lock },
   shortcuts: [{ id: 'plugins', label: '插件', screen: 'plugins', icon: { paths: icons.plug, background: gradients.black } }],
 });

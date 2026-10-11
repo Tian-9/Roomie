@@ -59,6 +59,7 @@ roomie/
   src/
     kernel/              the kernel; plugins cannot bypass it
       shell/             lock screen, home grid, dock, notification banner
+      lock/              PIN lock state machine + WebCrypto sealing of the API key
       registry/          plugin registry, contribution points, services
       bus/               event bus
       storage/           Dexie instance, schema, plugin table namespace, live queries
@@ -190,6 +191,18 @@ The first thing a fresh install does is not import a card; it is meeting someone
 3. **They speak first**: in their own voice, generate a one-line introduction and three questions (what to call you, when you usually sleep, what you are busy with lately); without a key, or if generation fails, fixed fallback copy is used. The first answer goes through `cleanName` into `kernel.userName`, the other two are joined into `kernel.userProfile`; the whole exchange is written verbatim into the direct conversation (`meta.onboarding`), and the last answer is handed to the chat engine so they reply to it, which is why their first real message already uses your name.
 
 Onboarding ends inside the conversation. The empty states (Messages, Them) can re-enter it by hand.
+
+### 6.5 Lock screen and key encryption
+
+The goal: when the phone is lent out or the browser is poked through, neither the conversation nor the key is lying in the open. Honestly, this guards against casual snooping, not a determined person with the device.
+
+- **PIN**: 4–6 digits, Settings → Security → Lock screen & key encryption. The PIN itself is never stored; after unlocking, memory holds only the non-extractable AES key derived by PBKDF2, and locking drops it.
+- **Key encryption** (`src/kernel/lock/crypto.ts`): PBKDF2-SHA256 (600k iterations, `iter` stored in the record so it can change later) with a random 16-byte salt → AES-256-GCM with a random 12-byte nonce. The ciphertext lives in kv `kernel.lock` (`LockRecord`: `pinLength`, `idleMinutes`, `sealed`, `hasKey`). While the lock is on, `apiKey` in kv `kernel.llm` is always the empty string: `Gateway.save` hands the key to the attached `vault` (the `KeyVault` interface: `persist` / `ready` / `sealed`) to encrypt and store separately. A wrong PIN is a failed GCM tag; there is no separate verifier.
+- **When it locks**: at startup whenever `kernel.lock` exists; on return from background (`visibilitychange`) after more than `idleMinutes` minutes (0 = immediately, -1 = only on open). The lock screen is `shell/LockScreen.svelte`, layered above every screen and the pre-send preview (z 90), and not part of the navigation stack.
+- **Model calls while locked**: `llm.configured` is true while locked with a sealed key, so catch-up and memory consolidation do not mistake it for "no key" and bail; `Gateway.chat` / `ping` `await vault.ready()` first and only send after unlock.
+- **Forgot the PIN**: the only way out is "clear the key and re-enter it" (offered on both the lock screen and the settings page): delete `kernel.lock`, write an empty `kernel.llm.apiKey`, turn the lock off; everything else stays.
+- **Rate limiting**: five wrong attempts → 30-second cooldown, in memory only, reset by a refresh. Do not describe it as brute-force protection.
+- **Backups**: the full export still exports `kv`, so with the lock on a backup carries the key as ciphertext (`kernel.lock`) and an empty `kernel.llm.apiKey`; importing on another device, the same PIN unlocks it. With the lock off the backup still holds the plaintext key, and the Data page's copy says which case applies. Conversations in a backup are always plaintext.
 
 ## 7. Milestones
 

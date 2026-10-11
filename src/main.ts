@@ -11,6 +11,7 @@ import { theme } from '$kernel/theme/theme.svelte';
 import { scheduler } from '$kernel/scheduler/scheduler';
 import { nav } from '$kernel/nav/nav.svelte';
 import { llm } from '$kernel/llm/gateway.svelte';
+import { lock } from '$kernel/lock/lock.svelte';
 import { chat } from '$kernel/chat/engine.svelte';
 import { log } from '$kernel/log/log';
 import { catchup } from '$kernel/catchup/catchup';
@@ -24,6 +25,8 @@ async function boot() {
   await repo.home();
   await theme.boot();
   await llm.boot();
+  // 开了锁屏的话这里把网关的 Key 交给保险箱；之后所有模型调用都等解锁
+  await lock.boot();
   await chat.boot();
   await registry.boot({
     enabled: ['diary', 'ledger', 'habits', 'schedule', 'dates', 'weather', 'review'],
