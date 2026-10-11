@@ -5,6 +5,7 @@
   import { previewOf } from '$kernel/data/repo';
   import { nav } from '$kernel/nav/nav.svelte';
   import { chat } from '$kernel/chat/engine.svelte';
+  const hasCharacter = live(async () => (await db().characters.count()) > 0, true);
 
   interface Row { id: string; name: string; avatar?: Blob; last: string; ts: number }
   const rows = live(async (): Promise<Row[]> => {
@@ -30,7 +31,13 @@
 
 <NavBar title="信息" large back="桌面" />
 {#if rows.value.length === 0}
-  <Placeholder title="还没有对话" body="去「他」里导入一张角色卡或新建人设，点「开始聊天」。" paths={icons.chat} />
+  {#if hasCharacter.value}
+    <Placeholder title="还没有对话" body="去「他」里点开他的主页，给他发第一条消息。" paths={icons.chat} />
+    <div class="center"><button class="link" onclick={() => nav.push('characters', 'app')}>去找他</button></div>
+  {:else}
+    <Placeholder title="他还没搬进来" body="先认识一下：挑一个他，填 Key，他会先开口。" paths={icons.chat} />
+    <div class="center"><button class="link" onclick={() => nav.push('characters', 'onboarding')}>开始</button></div>
+  {/if}
 {:else}
   <List>
     {#each rows.value as r (r.id)}
@@ -47,6 +54,8 @@
 <div style="height:40px"></div>
 
 <style>
+  .center { display: flex; justify-content: center; margin: 4px 16px 0; }
+  .link { color: var(--tint); font-size: 17px; padding: 6px 12px; }
   .row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 16px; position: relative; }
   .row + .row::before { content: ''; position: absolute; top: 0; left: 80px; right: 0; border-top: 0.5px solid var(--separator); }
   .row:active { background: var(--fill-2); }

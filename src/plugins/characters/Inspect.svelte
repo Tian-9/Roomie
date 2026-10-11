@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** 导入前检查：字段可编辑，可疑项另开一页，确认后才入库。卡里带的世界书不导入：Roomie 没有世界书。 */
+  /** 导入前检查：字段可编辑，可疑项另开一页，确认后才入库。卡里带的附加设定集（lorebook）不导入：Roomie 只有你的现实。 */
   import { NavBar, List, Field, SectionTitle, Button, Cell } from '$kernel/api';
   import type { ParsedCard } from '$kernel/importers/charaCard';
   import { cardToCharacterFields } from '$kernel/importers/charaCard';
@@ -59,8 +59,8 @@
 <SectionTitle text="作者备注（不进上下文）" /><List><Field multiline rows={2} bind:value={f.creator_notes} /></List>
 
 {#if hasBook}
-  <List footer="这张卡带了世界书。Roomie 里只有你的现实，没有世界书，这部分不导入；需要的背景可以并进上面的描述里。">
-    <Cell title="卡里带的世界书" value="不导入" />
+  <List footer="这张卡带了附加设定集（lorebook）。Roomie 里只有你的现实，这部分不导入；需要的背景可以并进上面的描述里。">
+    <Cell title="卡里带的设定集" value="不导入" />
   </List>
 {/if}
 <div class="actions">

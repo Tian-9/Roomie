@@ -17,9 +17,9 @@ Roomie is the real-world fork of [Pocketverse](https://github.com/Tian-9/pocketv
 
 **M1: one person.** On top of the M0 skeleton ported from Pocketverse, lorebooks, multiple worlds and save slots are gone: memory, state and their notes exist exactly once, follow you, and survive swapping the persona. The plugin API has no "save slot" any more, and gained reading conversations by time range, L1 keyword triggers and a `say` line for catch-up.
 
-What works today: import or create a persona, enter a Claude API key, chat, they remember things, and when you come back after a while they write up yesterday's diary.
+What works today: on first launch, onboarding lets you pick who moves in (three built-in personas, a one-line description the model turns into one, or a card import), enter a Claude API key, and they speak first: an introduction and three questions (what to call you, when you sleep, what you are busy with), then you are straight in the conversation; they remember things, and when you come back after a while they write up yesterday's diary.
 
-Next steps are in section 7 of the architecture doc: first-run onboarding; the ledger, schedule and daily review plugins.
+Next steps are in section 7 of the architecture doc: the ledger, schedule and daily review plugins.
 
 ## Development
 

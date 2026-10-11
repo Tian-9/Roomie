@@ -37,15 +37,16 @@
 
 <NavBar title="他" large back="桌面">
   {#snippet right()}
-    <button class="iconbtn" onclick={() => fileInput.click()} aria-label="导入角色卡" disabled={busy}><Glyph paths={icons.plus} size={24} color="var(--tint)" width={2.2} /></button>
+    <button class="iconbtn" onclick={() => fileInput.click()} aria-label="导入人设卡" disabled={busy}><Glyph paths={icons.plus} size={24} color="var(--tint)" width={2.2} /></button>
   {/snippet}
 </NavBar>
 <input type="file" accept=".png,.json,image/png,application/json" multiple bind:this={fileInput} onchange={onFiles} hidden />
 
 {#if chars.value.length === 0}
-  <Placeholder title="他还没搬进来" body="点右上角 + 导入 PNG 或 JSON 角色卡，或者新建一个空白人设。导入前会先进检查页，可疑内容删干净再入库。" paths={icons.person} />
+  <Placeholder title="他还没搬进来" body="跟着引导挑一个，几句话就认识了。也可以导入 PNG / JSON 人设卡，导入前会先进检查页，可疑内容删干净再入库。" paths={icons.person} />
   <div class="actions">
-    <button class="link" onclick={() => fileInput.click()}>导入角色卡</button>
+    <button class="link" onclick={() => nav.push('characters', 'onboarding')}>开始引导</button>
+    <button class="link" onclick={() => fileInput.click()}>导入人设卡</button>
     <button class="link" onclick={createBlank}>新建空白人设</button>
   </div>
 {:else}

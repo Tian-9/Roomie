@@ -38,7 +38,7 @@
   {/each}
 </List>
 <SectionTitle text="思考深度" />
-<List footer="越高回复越慢也越贵。聊天用中就够，复杂剧情再调高。">
+<List footer="越高回复越慢也越贵。聊天用中就够，想让他想得更细再调高。">
   <div class="seg">
     {#each efforts as e (e.id)}
       <button class:on={llm.settings.effort === e.id} onclick={() => llm.save({ effort: e.id })}>{e.label}</button>
@@ -47,7 +47,7 @@
 </List>
 
 <SectionTitle text="安全" />
-<List footer="开着时，每一次发给模型的请求（聊天、记忆整理、朋友圈、日记）都会先整页显示出来，你点发送才真的发。想看清楚到底传了什么就开它。">
+<List footer="开着时，每一次发给模型的请求（聊天、记忆整理、日记、补发）都会先整页显示出来，你点发送才真的发。想看清楚到底传了什么就开它。">
   <Cell title="发送前预览完整请求">{#snippet right()}<Toggle checked={!!llm.settings.preview} label="预览" onchange={(v) => llm.save({ preview: v })} />{/snippet}</Cell>
 </List>
 <SectionTitle text="思考" />
@@ -56,15 +56,15 @@
 </List>
 <SectionTitle text="记忆与工具" />
 <List footer="开着时他可以回忆、记状态、维护自己的笔记、分享东西、用插件的能力。关掉只靠常驻设定，更快更省。">
-  <Cell title="允许角色用工具">{#snippet right()}<Toggle checked={llm.settings.tools !== false} label="工具" onchange={(v) => llm.save({ tools: v })} />{/snippet}</Cell>
+  <Cell title="允许他用工具">{#snippet right()}<Toggle checked={llm.settings.tools !== false} label="工具" onchange={(v) => llm.save({ tools: v })} />{/snippet}</Cell>
 </List>
 <SectionTitle text="联网" />
-<List footer="开着时角色可以用 Anthropic 的联网搜索和读网页，由 Anthropic 服务端执行。搜索按次计费：每次 $0.01，另加搜到内容占的 token，已计入下面的用量。每轮最多搜 3 次。关着时角色只靠本地资料，分享歌曲查不到就不引歌词。需要先开「允许角色用工具」。">
-  <Cell title="允许角色上网" subtitle={llm.stats.webSearches ? `本月搜了 ${llm.stats.webSearches} 次，约 $${(llm.stats.webSearches * 0.01).toFixed(2)}` : '每次搜索 $0.01'}>{#snippet right()}<Toggle checked={!!llm.settings.web} label="上网" onchange={(v) => llm.save({ web: v })} />{/snippet}</Cell>
+<List footer="开着时他可以用 Anthropic 的联网搜索和读网页，由 Anthropic 服务端执行。搜索按次计费：每次 $0.01，另加搜到内容占的 token，已计入下面的用量。每轮最多搜 3 次。关着时他只靠本地资料，分享歌曲查不到就不引歌词。需要先开「允许他用工具」。">
+  <Cell title="允许他上网" subtitle={llm.stats.webSearches ? `本月搜了 ${llm.stats.webSearches} 次，约 $${(llm.stats.webSearches * 0.01).toFixed(2)}` : '每次搜索 $0.01'}>{#snippet right()}<Toggle checked={!!llm.settings.web} label="上网" onchange={(v) => llm.save({ web: v })} />{/snippet}</Cell>
 </List>
 
 <SectionTitle text="你" />
-<List footer="角色会用这个名字称呼你。自我介绍会常驻在上下文里，写你希望所有角色都知道的事。">
+<List footer="他会用这个名字称呼你。自我介绍常驻在上下文里，写你希望他一直知道的事；首次引导里的回答也记在这里。">
   <Field label="名字" bind:value={userName} placeholder="我" oninput={(v) => chat.setUserName(v)} />
   <Field multiline rows={3} bind:value={userProfile} placeholder="自我介绍，可选" oninput={(v) => chat.setUserProfile(v)} />
 </List>

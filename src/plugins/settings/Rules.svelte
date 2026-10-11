@@ -10,7 +10,7 @@
 
 <NavBar title="对话规则" back="设置" />
 <SectionTitle text="每轮都在最前面的基础规则" />
-<List footer="相当于 SillyTavern 预设里的主提示词。改这里影响所有角色。想让某种风格只在部分场景生效，用「风格」里带触发词的条目。">
+<List footer="每轮对话都排在最前面的基础规则，换人设也一样生效。相当于 SillyTavern 预设里的主提示词。">
   <div class="box"><textarea bind:value={text} rows="12" oninput={save} spellcheck="false"></textarea></div>
 </List>
 <div class="actions"><Button kind="plain" onclick={reset}>恢复默认</Button></div>

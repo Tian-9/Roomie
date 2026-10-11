@@ -76,7 +76,7 @@ roomie/
       api/               $kernel/api: the only module plugins may import
     plugins/
       chat/              Messages (kernel-level, cannot be disabled)
-      characters/        Them: persona, profile, memories, card import
+      characters/        Them: persona, profile, memories, card import, first-run onboarding
       diary/             Diary: the daily review they write for you (sample plugin)
       settings/          API, appearance, plugin toggles, logs, full-database export / import
     main.ts              boot: kernel → register plugins → mount shell
@@ -165,6 +165,16 @@ Background timers are throttled (Chrome: once per minute for background tabs, in
 - Foreground, page open: `scheduler` checks catch-up hourly. Already there.
 - Page closed: no guarantee. Periodic Background Sync is Chrome/Android only; optional enhancement.
 - To actually reach you: a Telegram bot plugin (the Bot API is plain HTTPS, callable from the browser, no server needed). Email via Gmail API with browser OAuth. WhatsApp is out of scope.
+
+### 6.4 First-run onboarding
+
+The first thing a fresh install does is not import a card; it is meeting someone. When the `characters` plugin's `setup` finds no card at all, it pushes the `onboarding` screen. Three steps:
+
+1. **Who they are**: pick one of three built-in personas (`src/plugins/characters/presets/`: the gentle roommate, the teasing best friend, the quiet bookworm, each with a ~300-character core); or write one line ("I want someone who…") and a cheap model generates name, core and sample dialogue as JSON; "More" keeps the PNG / JSON card import, which goes through the existing inspection page.
+2. **API key**: the gateway's own setting; the key stays in this device's browser. With a built-in persona you can skip it and fill it in before chatting; generation from a description needs it first.
+3. **They speak first**: in their own voice, generate a one-line introduction and three questions (what to call you, when you usually sleep, what you are busy with lately); without a key, or if generation fails, fixed fallback copy is used. The first answer goes through `cleanName` into `kernel.userName`, the other two are joined into `kernel.userProfile`; the whole exchange is written verbatim into the direct conversation (`meta.onboarding`), and the last answer is handed to the chat engine so they reply to it, which is why their first real message already uses your name.
+
+Onboarding ends inside the conversation. The empty states (Messages, Them) can re-enter it by hand.
 
 ## 7. Milestones
 

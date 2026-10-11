@@ -69,14 +69,14 @@ roomie/
       catchup/           补发：按档位合成一次调用
       scheduler/         前台定时器 + 回到前台触发补发
       data/              repo（写）与 view（插件只读视图）
-      importers/         角色卡 PNG/JSON 和导入前扫描
+      importers/         人设卡 PNG/JSON 和导入前扫描
       theme/             主题 token
       nav/               导航栏与浏览器历史
       ui/                基础组件库
       api/               $kernel/api：插件唯一能 import 的入口
     plugins/
       chat/              信息（内核级，不可关闭）
-      characters/        他：人设、主页、记忆、角色卡导入
+      characters/        他：人设、主页、记忆、人设卡导入、首次引导
       diary/             日记：他替你写的每日复盘（示范插件）
       settings/          API、外观、插件开关、日志、整库导出导入
     main.ts              启动：内核 → 注册插件 → 挂载 shell
@@ -165,6 +165,16 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 - 前台开着：`scheduler` 每小时查一次补发，这是现成的。
 - 页面关着：不保证。Periodic Background Sync 只有 Chrome/Android 支持，作为可选增强。
 - 真要主动找你：做 Telegram Bot 插件（Bot API 是普通 HTTPS，浏览器直连，不需要服务器）。Email 收发走 Gmail API + 浏览器 OAuth。WhatsApp 不做。
+
+### 6.4 首次引导
+
+新装开的第一件事不是导卡，是认识一个人。`characters` 插件的 `setup` 发现一张卡都没有，就把 `onboarding` 界面推上来，三步：
+
+1. **他是谁**：内置三张人设（`src/plugins/characters/presets/`：温和的室友、损友、安静的书呆子，各 300 字 core）任选；或者写一句"我想要一个……的人"，由便宜模型按 JSON 结构生成名字、core 和示例对话；"更多"里保留导入 PNG / JSON 人设卡，走原来的检查页。
+2. **API Key**：沿用网关设置，Key 只存在本机浏览器。选了内置人设可以先跳过，聊之前再填；按描述生成必须先填。
+3. **他开口**：用他的口吻生成一句自我介绍和三个问题（叫你什么、平时几点睡、最近在忙什么），没 Key 或生成失败就用兜底文案。第一个答案经 `cleanName` 写进 `kernel.userName`，后两个拼成 `kernel.userProfile`；整段对话原样写进和他的私聊（`meta.onboarding`），最后一句交给聊天引擎让他接着回，所以他第一句就会叫出你的名字。
+
+结束直接落在和他的对话里。空状态页（信息、他）也能手动再进引导。
 
 ## 7. 里程碑
 
