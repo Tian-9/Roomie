@@ -64,12 +64,12 @@ roomie/
       storage/           Dexie instance, schema, plugin table namespace, live queries
       llm/               model gateway: Claude adapter, streaming, caching, usage
       chat/              chat engine: tool loop, tag parsing
-      context/           context assembly: L0/L1/L2, memfs, search, tools
+      context/           context assembly: L0/L1/L2, notes (memfs), search, tools
       memory/            memory consolidation (Haiku)
       catchup/           catch-up: one model call per tier
       scheduler/         foreground timers + resume trigger
       data/              repo (writes) and view (read-only view for plugins)
-      importers/         character card PNG/JSON (lorebook / preset / stChat pending removal)
+      importers/         character card PNG/JSON and pre-import scan
       theme/             theme tokens
       nav/               navigation and browser history
       ui/                base UI kit
@@ -86,32 +86,38 @@ Rule: `plugins/*` may only import `$kernel/api`, never kernel internals or other
 
 ## 5. Core data model
 
-In M0 the kernel data model is identical to Pocketverse (see `src/kernel/storage/db.ts`): `characters`, `campaigns`, `conversations`, `messages`, `memories`, `memfs`, `kv`, `usage`, `logs`, plus the not-yet-removed `worlds`, `lore`, `overlays`.
-
-Target model (after M1):
+Kernel tables (from M1 on, see `src/kernel/storage/db.ts`): `home`, `characters`, `conversations`, `messages`, `memories`, `notes`, `kv`, `usage`, `logs`. Pocketverse's `worlds`, `lore`, `overlays` and `campaigns` are gone; opening an old database drops those tables, and `memfs` became `notes` because its primary key changed (Dexie cannot change a primary key in place).
 
 ```ts
-// Them: the single resident character. Swapping the card changes personality, not the memory below
-interface Character { id; name; avatar?; core; full; voice? }
+// Them: the persona card. There can be several (swap the persona), but nothing below follows the card
+interface Character { id; name; avatar?; core; full; firstMessage?; useFirstMessage?; voice? }
 
-// You: user profile, always in L0
-interface UserProfile { facts: string[]; preferences: string[] }
-
-// Memory belongs to the user, not to a save slot. characterId only records whose point of view wrote it
-interface EpisodicMemory { id; when; text; importance: 1|2|3; sourceMessageIds; createdAt }
+// Your world and this one run of them: exactly one row, id fixed to 'home'. Pocketverse's Campaign collapses into this
+interface Home { id: 'home'; state: State; lastActiveAt: number; catchupAt?: number }
 
 // Current state: their mood, your relationship, the last 20 facts; goes into L0
 interface State { mood: string; relation: string; facts: string[] }
+
+// Memory belongs to you, not to a card. characterId only records whose point of view wrote it
+interface EpisodicMemory { id; characterId?; when; text; importance: 1|2|3; sourceMessageIds; createdAt }
+
+// Their notebook /memories (backend of the Claude memory tool), one tree for the whole database
+interface MemFile { path; content; updatedAt }
+
+// One direct conversation per card; consolidation progress lives on the conversation
+interface Conversation { id; kind; participantIds; pluginId; consolidatedUpTo?; consolidateFailedAt? }
 ```
 
-Pocketverse's `Campaign` collapses into an implicit singleton: "your world, and this one run of them". The UI never shows a "save slot".
+Your name and profile live in kv (`kernel.userName`, `kernel.userProfile`) and are always in L0. "The resident one" is a kv pointer (`kernel.currentCharacter`): whoever you last messaged; catch-up only runs for them. The UI never shows a "save slot" or a "world".
+
+Plugins see `ctx.data`: `currentCharacter()`, `character(id)`, `characters()`, `state()`, `memories(opts)`, `messages({ from, to, limit })`, `userProfile()`, all read-only snapshots.
 
 ### 5.1 Three-tier memory
 
 Same as Pocketverse, with a different source of canon:
 
 - **L0 resident**: global rules, user profile, their `core`, current state, recent key events (importance 3), the stable part of each plugin's `promptContributors`. Goes into `system`, cached.
-- **L1 triggered**: scan the last few messages for keywords matching plugin-registered triggers (ledger: "spent" pulls in this week's spending; schedule: "tomorrow" pulls in tomorrow's plan). Goes into the last user message.
+- **L1 triggered**: scan the last few messages for keywords matching plugin-registered triggers (ledger: "spent" pulls in this week's spending; schedule: "tomorrow" pulls in tomorrow's plan). Goes into the last user message. Registered as `promptContributors[].triggers: string[]`: with triggers, `volatile` is only called on a hit; without, it is called every turn.
 - **L2 on demand**: the model calls tools: `memory_search`, `memory_recent`, memfs, and plugin tools (`ledger_query`, `schedule_list`).
 
 Write-back: `state_update` and memory tool calls persist immediately; every N turns or on app switch, Haiku consolidates into episodic memories and state changes.
@@ -130,7 +136,7 @@ In Pocketverse catch-up is "a few story days passed, post a moment, write a diar
   - Diary (`d1`): yesterday's review.
   - Schedule (`attach`): what is on today, mentioned in passing.
   - Ledger (`days`, Mondays): last week's spending summary.
-- Their opening line is assembled by the kernel: good morning / long time no see, plus each section's result. Budget: at most one round per resume.
+- Their opening line is assembled by the kernel: each section's schema may carry an optional `say` field (the one line they want to say after handling it); the kernel joins the greeting (`h6` none, `d1` "早", `days` "好久不见") with every section's `say` into **one** message from them, written into the direct conversation, and emits `notify`. If nobody has anything to say, nothing is posted. Budget: at most one round per resume.
 
 ### 6.2 Capability packs are plugins
 
@@ -162,8 +168,8 @@ Background timers are throttled (Chrome: once per minute for background tabs, in
 | Milestone | Scope | Acceptance |
 |---|---|---|
 | **M0 Move in** ✅ | Port the skeleton from Pocketverse: keep the whole kernel, keep only Messages / Them / Diary / Settings; delete lorebooks, styles, story plugins; rename | `npm run lint` and `npm run build` pass; can import a card, set a key, chat, get yesterday's diary written |
-| M1 One person | Memory follows the user: drop `worlds` / `lore` / `overlays` tables and related kernel code, collapse `Campaign` into a singleton, remove "world / save slot" from the UI; first-run onboarding (they introduce themselves, ask a few questions); user profile in L0 | Swap the card and they still remember you; no "world" anywhere in settings |
-| M2 Three packs | Ledger, reminders, daily review plugins; catch-up becomes "good morning + yesterday's recap" on open | Toggling plugins changes the home screen; come back after a day and get a greeting and review; ask "what did I spend yesterday" and get an answer |
+| **M1 One person** ✅ | Memory follows the user: drop the `worlds` / `lore` / `overlays` / `campaigns` tables, related kernel code and the lorebook / preset / stChat importers; collapse `Campaign` into the `home` singleton; remove "world / save slot / story time" from the UI; drop `campaignId` from the plugin API, add `ctx.data.messages()`, `triggers` and catch-up `say` | Swap the persona and they still remember you; an old database upgrades on open; no "world" or "save slot" anywhere in settings or the profile |
+| M2 Three packs | First-run onboarding (they introduce themselves, ask a few questions, answers go into the user profile); ledger, reminders, daily review plugins; catch-up becomes "good morning + yesterday's recap" on open | Wipe the database, finish onboarding and chat; toggling plugins changes the home screen; come back after a day and get a greeting and review; ask "what did I spend yesterday" and get an answer |
 | M3 Out of the browser | Telegram bot push plugin; full export / import; PIN-encrypted key | Close the page and still get their message on Telegram |
 
 ## 8. Copy

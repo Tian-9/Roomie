@@ -1,14 +1,12 @@
 <script lang="ts">
-  /** 导入前检查：字段可编辑，可疑项另开一页，内嵌世界书逐条可看可改，确认后才入库。 */
+  /** 导入前检查：字段可编辑，可疑项另开一页，确认后才入库。卡里带的世界书不导入：Roomie 没有世界书。 */
   import { NavBar, List, Field, SectionTitle, Button, Cell } from '$kernel/api';
   import type { ParsedCard } from '$kernel/importers/charaCard';
   import { cardToCharacterFields } from '$kernel/importers/charaCard';
   import { sanitize } from '$kernel/importers/scan';
   import { repo } from '$kernel/data/repo';
-  import { db } from '$kernel/storage/db';
   import { nav } from '$kernel/nav/nav.svelte';
   import { bus } from '$kernel/bus/bus';
-  import { ulid } from 'ulid';
   import { draft } from './draft.svelte';
 
   let { card, avatar, raw }: { card?: ParsedCard; avatar?: Blob; raw?: unknown } = $props();
@@ -23,11 +21,7 @@
     const c0 = draft.card!;
     const fields = cardToCharacterFields({ ...c0, name: f.name, description: f.description, personality: f.personality, scenario: f.scenario, firstMessage: f.first_mes, exampleDialogue: f.mes_example, systemPrompt: f.system_prompt, creatorNotes: f.creator_notes });
     const c = await repo.createCharacter({ ...fields, avatar: draft.avatar });
-    const book = $state.snapshot(draft.book).filter((e) => e.include);
-    if (book.length) {
-      await db().lore.bulkAdd(book.map(({ include: _i, ...e }) => ({ ...e, id: ulid(), worldId: 'character', scope: 'character' as const, characterIds: [c.id] })));
-    }
-    bus.emit('notify', { title: `已导入 ${c.name}`, body: book.length ? `带 ${book.length} 条人物背景` : undefined, pluginId: 'characters' });
+    bus.emit('notify', { title: `已导入 ${c.name}`, pluginId: 'characters' });
     await nav.pop();
     nav.push('characters', 'detail', { id: c.id });
   }
@@ -41,9 +35,10 @@
   function abandon() { nav.pop(); }
   const n = $derived(draft.open.length);
   const ignoredN = $derived(draft.findings.length - draft.open.length);
+  const hasBook = $derived(!!draft.card?.characterBook);
 </script>
 
-<NavBar title="导入前检查" back="角色" />
+<NavBar title="导入前检查" back="返回" />
 <SectionTitle text="扫描" />
 <List footer="扫描只在本机做，不调任何接口。它只是提醒，判断由你来做。">
   {#if draft.findings.length === 0}
@@ -63,10 +58,9 @@
 <SectionTitle text="作者系统提示" /><List footer="这一段会原样进常驻设定，破限常藏在这里。不认识的指令建议删掉。"><Field multiline rows={3} bind:value={f.system_prompt} /></List>
 <SectionTitle text="作者备注（不进上下文）" /><List><Field multiline rows={2} bind:value={f.creator_notes} /></List>
 
-{#if draft.book.length}
-  <SectionTitle text="人物背景" />
-  <List footer="卡里自带的世界书，作为他的人物背景导入，跟卡走。">
-    <Cell title="卡里带的背景" subtitle={`${draft.book.filter((e) => e.include).length} 条将导入 · ${draft.book.filter((e) => !e.include).length} 条不导入`} chevron onclick={() => nav.push('characters', 'book')} />
+{#if hasBook}
+  <List footer="这张卡带了世界书。Roomie 里只有你的现实，没有世界书，这部分不导入；需要的背景可以并进上面的描述里。">
+    <Cell title="卡里带的世界书" value="不导入" />
   </List>
 {/if}
 <div class="actions">

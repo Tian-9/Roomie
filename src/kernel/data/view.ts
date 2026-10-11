@@ -1,55 +1,44 @@
-import { db } from '../storage/db';
-import type { Campaign } from '../storage/db';
-import { repo } from './repo';
-import { loreApplies } from './lore';
-import { loreDirectory } from '../context/assemble';
-import type { DataView, CampaignView } from '../api/types';
+import { db, HOME_ID, EMPTY_STATE } from '../storage/db';
+import type { Character } from '../storage/db';
+import { repo, textOf, cardsOf } from './repo';
+import type { DataView, CharacterView } from '../api/types';
 
-async function toView(c: Campaign): Promise<CampaignView | undefined> {
-  const chId = c.characterIds[0];
-  const [ch, world] = await Promise.all([chId ? db().characters.get(chId) : undefined, db().worlds.get(c.worldId)]);
-  if (!ch) return undefined;
-  return {
-    id: c.id, name: c.name, worldId: c.worldId, worldName: world?.name ?? '', characterId: ch.id, characterName: ch.name,
-    lastPlayedAt: c.lastPlayedAt, state: structuredClone(c.state),
-  };
-}
+const toView = (c: Character): CharacterView => ({ id: c.id, name: c.name, avatar: c.avatar, core: c.core });
 
 /** PluginContext.data 的实现：插件读内核数据的唯一入口，只读。 */
 export const dataView: DataView = {
-  async currentCampaigns() {
-    const ids = await repo.currentCampaignIds();
-    const cps = (await db().campaigns.bulkGet([...ids])).filter((c): c is Campaign => !!c);
-    const views = (await Promise.all(cps.map(toView))).filter((v): v is CampaignView => !!v);
-    return views.sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
-  },
-  async campaign(id) {
-    const c = await db().campaigns.get(id);
+  async currentCharacter() {
+    const c = await repo.currentCharacter();
     return c ? toView(c) : undefined;
-  },
-  async world(id) {
-    const w = await db().worlds.get(id);
-    return w ? { id: w.id, name: w.name, summary: w.summary } : undefined;
   },
   async character(id) {
     const c = await db().characters.get(id);
-    return c ? { id: c.id, name: c.name, avatar: c.avatar, core: c.core } : undefined;
+    return c ? toView(c) : undefined;
   },
   async characters() {
-    return (await db().characters.toArray()).map((c) => ({ id: c.id, name: c.name, avatar: c.avatar, core: c.core }));
+    return (await db().characters.toArray()).map(toView);
   },
-  async memories(campaignId, opts = {}) {
+  async state() {
+    const h = await db().home.get(HOME_ID);
+    return structuredClone(h?.state ?? EMPTY_STATE);
+  },
+  async memories(opts = {}) {
     const min = opts.minImportance ?? 1;
-    const all = await db().memories.where('campaignId').equals(campaignId).filter((m) => m.importance >= min).reverse().sortBy('createdAt');
+    const all = await db().memories.filter((m) => m.importance >= min).reverse().sortBy('createdAt');
     return all.slice(0, opts.limit ?? all.length).map((m) => ({ id: m.id, characterId: m.characterId, when: m.when, text: m.text, importance: m.importance, createdAt: m.createdAt }));
   },
-  async loreDirectory(campaignId) {
-    const c = await db().campaigns.get(campaignId);
-    if (!c) return '';
-    const [lore, overlays] = await Promise.all([
-      db().lore.filter((e) => e.kind !== 'style' && loreApplies(e, c.worldId, c.characterIds)).toArray(),
-      db().overlays.where('campaignId').equals(campaignId).toArray(),
-    ]);
-    return loreDirectory(lore, overlays);
+  async messages({ from, to, limit }) {
+    const convs = await db().conversations.where('pluginId').equals('chat').toArray();
+    const who = new Map(convs.map((c) => [c.id, c.participantIds[0]]));
+    const rows = await db().messages.where('ts').between(from, to, true, false).filter((m) => who.has(m.conversationId)).sortBy('ts');
+    const picked = limit && rows.length > limit ? rows.slice(-limit) : rows;
+    return picked.map((m) => {
+      const alts = cardsOf(m).map((c) => c.alt?.trim()).filter((s): s is string => !!s);
+      return { id: m.id, conversationId: m.conversationId, characterId: who.get(m.conversationId), role: m.role, text: [textOf(m).trim(), ...alts].filter(Boolean).join('\n'), ts: m.ts };
+    });
+  },
+  async userProfile() {
+    const [name, profile] = await Promise.all([db().getKV('kernel.userName', '我'), db().getKV('kernel.userProfile', '')]);
+    return { name, profile };
   },
 };

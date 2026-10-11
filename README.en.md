@@ -15,11 +15,11 @@ Roomie is the real-world fork of [Pocketverse](https://github.com/Tian-9/pocketv
 
 ## Status
 
-**M0: the skeleton ported from Pocketverse.** The kernel (shell, storage, model gateway, context assembly, catch-up, UI kit) is kept as is. Four plugins remain: Messages, Them, Diary, Settings. Role-play plugins (lorebooks, moments, red packets, forum, shop) have been removed.
+**M1: one person.** On top of the M0 skeleton ported from Pocketverse, lorebooks, multiple worlds and save slots are gone: memory, state and their notes exist exactly once, follow you, and survive swapping the persona. The plugin API has no "save slot" any more, and gained reading conversations by time range, L1 keyword triggers and a `say` line for catch-up.
 
-What works today: import or create a character, enter a Claude API key, chat, they remember things, and when you come back after a while they write up yesterday's diary.
+What works today: import or create a persona, enter a Claude API key, chat, they remember things, and when you come back after a while they write up yesterday's diary.
 
-Next steps are in section 7 of the architecture doc: make memory follow the user instead of the save slot, drop worlds and multiple save slots, add three plugins (ledger, reminders, daily review).
+Next steps are in section 7 of the architecture doc: first-run onboarding; the ledger, schedule and daily review plugins.
 
 ## Development
 

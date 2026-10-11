@@ -1,5 +1,5 @@
 /**
- * 分享卡：角色在聊天里分享一个东西（歌、电影、新闻、链接）的通用结构。
+ * 分享卡：他在聊天里分享一个东西（歌、文章、链接）的通用结构。
  * 聊天插件只认这一种卡片，按字段有无决定显示什么；类型私有信息放 subtype / extra。
  */
 export interface ShareCard {
@@ -14,7 +14,7 @@ export interface ShareCard {
   cover?: string;
   /** 外链，第一个是主链接 */
   links?: { label: string; url: string }[];
-  /** 角色引用的一句（已经过原文校验） */
+  /** 他引用的一句（已经过原文校验） */
   quote?: string;
   /** 简介或摘要 */
   excerpt?: string;
@@ -22,7 +22,7 @@ export interface ShareCard {
   preview?: string;
   /** 资料来源，如 itunes+lrclib / manual / none */
   source?: string;
-  /** 点卡片打开的界面（如论坛帖子页）；没有就只是展示 */
+  /** 点卡片打开的界面；没有就只是展示 */
   open?: { pluginId: string; screen: string; params?: Record<string, unknown> };
   extra?: Record<string, unknown>;
 }
@@ -42,10 +42,9 @@ export interface ShareResult {
   forModel: string;
 }
 
-/** 解析时所在的局：按存档存东西的解析器（论坛帖子）靠它找 */
+/** 解析时是谁在分享 */
 export interface ShareContext {
-  campaignId: string;
-  characterIds: string[];
+  characterId: string;
 }
 
 export interface ShareResolver {
@@ -55,6 +54,6 @@ export interface ShareResolver {
   label: string;
   /** 给模型看的一句说明：这个类型 title / subtitle 填什么 */
   hint: string;
-  /** 查不到又不该编的（本地帖子）就 throw，错误信息会原样告诉模型 */
+  /** 查不到又不该编的就 throw，错误信息会原样告诉模型 */
   resolve(query: ShareQuery, ctx: ShareContext): Promise<ShareResult>;
 }

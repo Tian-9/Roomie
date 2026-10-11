@@ -18,19 +18,19 @@ export interface PluginManifest {
   shortcuts?: Shortcut[];
   /** 其他可打开的界面，按 id 导航 */
   screens?: Record<string, Component<any>>;
-  /** 往提示词里注入的内容（M1 起生效） */
+  /** 往提示词里注入的内容：稳定部分进 system，易变部分进最后一条用户消息 */
   promptContributors?: PromptContributor[];
-  /** L2 工具（M2 起生效） */
+  /** L2 工具：他能自己调的 */
   tools?: ToolDef[];
-  /** 解析模型输出里的标签（M1 起生效） */
+  /** 解析模型输出里的标签 */
   outputHandlers?: OutputHandler[];
   /** 分享解析器：内核的 share 工具按 type 分发到这里 */
   shares?: ShareResolver[];
   /** 补发登记：离开一段时间回来，内核按档位把各插件的事拼成一次调用 */
   catchup?: CatchupContributor[];
-  /** 聊天输入框「+」面板里的项：用户主动发东西（分享歌、红包…） */
+  /** 聊天输入框「+」面板里的项：你主动发东西（记一笔、发首歌…） */
   composerActions?: ComposerAction[];
-  /** 角色主页上挂的段（钱包余额、最近一条朋友圈…）：按存档读自己的表 */
+  /** 他的主页上挂的段（本月花了多少、下一件日程…） */
   profileSections?: ProfileSection[];
   /**
    * 给别的插件用的服务，按名字取（`ctx.service('wallet')`）。插件不能互相 import，跨插件要调东西只能走这里。
@@ -78,12 +78,17 @@ export interface PromptContributor {
   stable?: (ctx: PromptContext) => string | Promise<string>;
   /** 易变部分，进最后一条用户消息 */
   volatile?: (ctx: PromptContext) => string | Promise<string>;
+  /**
+   * L1 触发词：给了就只在最近几条消息或本轮输入里出现其中一个词时才调 volatile（不分大小写）。
+   * 记账插件登记「花了、买了」，提到才带上本周支出；不给就每轮都调。
+   */
+  triggers?: string[];
 }
 
 export interface PromptContext {
-  campaignId: string;
   conversationId: string;
-  characterIds: string[];
+  /** 正在说话的他 */
+  characterId: string;
   /**
    * 工具处理时可用：往这一轮回复里加一张卡片，由本插件 outputHandlers 里同名 tag 的组件渲染。
    * alt 是这张卡的一句话文字版（如「[发了一个红包：¥8.88「生日快乐」]」），进后续轮次的历史和聊天列表预览；不给的话模型下一轮就不记得发过。
@@ -111,7 +116,6 @@ export interface OutgoingMessage {
 
 export interface ComposerActionProps {
   conversationId: string;
-  campaignId: string;
   characterId: string;
   onsend(msg: OutgoingMessage): void;
   onclose(): void;
@@ -126,11 +130,10 @@ export interface ComposerAction {
 }
 
 export interface ProfileSectionProps {
-  campaignId: string;
   characterId: string;
 }
 
-/** 角色主页上的一段，由插件提供；主页本身不认识段的内容 */
+/** 他的主页上的一段，由插件提供；主页本身不认识段的内容 */
 export interface ProfileSection {
   id: string;
   /** 段标题，如「钱包」；不给就不显示标题 */
@@ -161,10 +164,9 @@ export interface OutputHandler {
 export type CatchupTier = 'h6' | 'd1' | 'days' | 'attach';
 
 export interface CatchupContext {
-  campaignId: string;
   characterId: string;
   characterName: string;
-  /** 距上次和这个角色互动（或上次补发）的时长 */
+  /** 距上次和他互动（或上次补发）的时长 */
   elapsedMs: number;
   /** 整天数，days 档才有意义 */
   days: number;
@@ -175,11 +177,14 @@ export interface CatchupContext {
 }
 
 export interface CatchupItem {
-  /** 这一段的标题，如「朋友圈」 */
+  /** 这一段的标题，如「日记」 */
   label: string;
   /** 材料和任务说明 */
   prompt: string;
-  /** 这一段的 JSON schema，内核挂到总 schema 的一个属性下 */
+  /**
+   * 这一段的 JSON schema，内核挂到总 schema 的一个属性下。
+   * 可以约定一个可选字符串字段 `say`（他想顺口跟对方说的一句），内核会把各段的 say 合成一条他发来的消息。
+   */
   schema: Record<string, unknown>;
   /** 模型答完，这一段的结果 */
   apply(output: unknown, ctx: CatchupContext): Promise<void>;
@@ -204,9 +209,9 @@ export interface KernelEvents {
   'llm.turn.start': { conversationId: string };
   'llm.turn.end': { conversationId: string; usage: { input: number; output: number; cacheRead: number; cacheWrite: number }; model: string };
   'llm.turn.error': { conversationId: string; message: string };
-  'memory.written': { kind: 'state' | 'overlay' | 'episodic' | 'memfs'; id: string };
-  'memory.consolidated': { campaignId: string; memories: number; overlays: number };
-  'catchup.done': { campaignId: string; tier: string; keys: string[] };
+  'memory.written': { kind: 'state' | 'episodic' | 'notes'; id: string };
+  'memory.consolidated': { conversationId: string; memories: number };
+  'catchup.done': { characterId: string; tier: string; keys: string[] };
 }
 export type EventName = keyof KernelEvents | (string & {});
 export type EventHandlers = {
@@ -235,7 +240,7 @@ export interface PluginContext {
     chat(req: PluginChatRequest): Promise<{ text: string }>;
     configured: boolean;
   };
-  /** 内核数据的只读视图：存档、世界、角色、记忆、条目目录。插件读这些一律走这里，不直接碰库 */
+  /** 内核数据的只读视图：他、状态、记忆。插件读这些一律走这里，不直接碰库 */
   data: DataView;
   /** 别的插件提供的服务；提供它的插件没开就是 undefined，调用方要能退化 */
   service<T = unknown>(name: string): T | undefined;
@@ -246,34 +251,24 @@ export interface PluginContext {
  * 在 live() 里调用也能被 Dexie 追踪，表一变界面就刷新。
  */
 export interface DataView {
-  /** 每张卡「当前这一局」（聊天列表、补发、朋友圈只看这些），最近玩过的在前 */
-  currentCampaigns(): Promise<CampaignView[]>;
-  campaign(id: string): Promise<CampaignView | undefined>;
-  world(id: string): Promise<WorldView | undefined>;
+  /** 常驻的他：最近给谁发消息谁就是；补发只找他 */
+  currentCharacter(): Promise<CharacterView | undefined>;
   character(id: string): Promise<CharacterView | undefined>;
   characters(): Promise<CharacterView[]>;
-  /** 这一局的情节记忆，新的在前 */
-  memories(campaignId: string, opts?: { limit?: number; minImportance?: 1 | 2 | 3 }): Promise<MemoryView[]>;
-  /** 这一局能用的条目目录（title + summary，带本局覆盖标注），和拼上下文用的是同一段文字；没有条目返回空串 */
-  loreDirectory(campaignId: string): Promise<string>;
+  /** 当前状态：他的情绪、你们的关系、当前事实。全库一份 */
+  state(): Promise<StateView>;
+  /** 情节记忆，新的在前。全库一份，不按卡分 */
+  memories(opts?: { limit?: number; minImportance?: 1 | 2 | 3 }): Promise<MemoryView[]>;
+  /** 和他的对话，按时间段（ts 毫秒，含 from 不含 to），旧的在前；日记、复盘、周报翻对话用这个 */
+  messages(opts: { from: number; to: number; limit?: number }): Promise<MessageView[]>;
+  /** 你：名字和画像（引导里填的、他慢慢记下的） */
+  userProfile(): Promise<{ name: string; profile: string }>;
 }
 
-export interface CampaignView {
-  id: string;
-  name: string;
-  worldId: string;
-  worldName: string;
-  /** 现在的存档都是单人局；群聊再扩成数组 */
-  characterId: string;
-  characterName: string;
-  lastPlayedAt: number;
-  state: {
-    inWorldTime?: string; location?: string;
-    relations: Record<string, string>; mood: Record<string, string>; facts: string[];
-  };
-}
-export interface WorldView { id: string; name: string; summary: string }
 export interface CharacterView { id: string; name: string; avatar?: Blob; core: string }
+export interface StateView { mood: string; relation: string; facts: string[] }
+/** 一条消息的只读视图；text 已含卡片的文字版（alt） */
+export interface MessageView { id: string; conversationId: string; characterId?: string; role: 'user' | 'assistant' | 'system'; text: string; ts: number }
 export interface MemoryView { id: string; characterId?: string; when: string; text: string; importance: 1 | 2 | 3; createdAt: number }
 
 export interface PluginChatRequest {

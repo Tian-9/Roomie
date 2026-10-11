@@ -1,8 +1,7 @@
 import { db } from '../storage/db';
 import type { Message } from '../storage/db';
-import { repo } from '../data/repo';
-import { loreApplies } from '../data/lore';
-import { assemble } from '../context/assemble';
+import { repo, modelTextOf } from '../data/repo';
+import { assemble, triggered } from '../context/assemble';
 import { kernelTools, shareTool, attachedTool, attachedPrompt, toolLabel } from '../context/tools';
 import { catchup } from '../catchup/catchup';
 import type { ToolContext } from '../context/tools';
@@ -20,6 +19,9 @@ import { log } from '../log/log';
 export type TurnStatus = 'idle' | 'thinking' | 'typing' | 'tool';
 
 interface Live { conversationId: string; status: TurnStatus; statusText: string; text: string; abort: AbortController }
+
+/** L1 触发扫描最近几条消息 */
+const SCAN_DEPTH = 4;
 
 /** 聊天引擎：一轮 = 存用户消息 → 拼装 → 工具循环 → 存回复 → 记账 → 视情况合并记忆。 */
 class ChatEngine {
@@ -42,17 +44,11 @@ class ChatEngine {
 
   async send(conversationId: string, text: string, extra: Partial<Message> = {}) {
     if (this.live[conversationId]) return;
-    await repo.addMessage(conversationId, 'user', text, { ...(await this.stamp(conversationId)), ...extra });
-    await this.runTurn(conversationId);
-  }
-
-  /** 剧情时间模式下，消息带上当时的剧情时间，聊天界面按它显示分隔线 */
-  private async stamp(conversationId: string): Promise<Partial<Message>> {
+    // 给谁发消息，谁就是常驻的他
     const conv = await db().conversations.get(conversationId);
-    const ch = conv && (await repo.characterOfConversation(conv));
-    const cp = conv && (await db().campaigns.get(conv.campaignId));
-    if (ch?.timeMode === 'story' && cp?.state.inWorldTime) return { inWorldTs: cp.state.inWorldTime };
-    return {};
+    if (conv?.participantIds[0]) await repo.setCurrentCharacter(conv.participantIds[0]);
+    await repo.addMessage(conversationId, 'user', text, extra);
+    await this.runTurn(conversationId);
   }
 
   async regenerate(conversationId: string) {
@@ -71,23 +67,7 @@ class ChatEngine {
   }
   async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
 
-  /** 推进剧情时间：写一条旁白，更新状态，然后让角色接着说 */
-  async advanceTime(conversationId: string, when: string, note?: string) {
-    if (this.live[conversationId]) return;
-    const conv = await db().conversations.get(conversationId);
-    const campaign = conv && (await db().campaigns.get(conv.campaignId));
-    if (!conv || !campaign) return;
-    // 推进时间是章节分隔：先把之前的事整理成记忆，之后的上下文只带分隔点附近几条原话
-    this.live[conversationId] = { conversationId, status: 'thinking', statusText: '正在整理之前的事…', text: '', abort: new AbortController() };
-    try { await consolidate(conversationId, { force: true, reason: '推进时间' }); }
-    catch { /* 已记日志，整理失败不挡推进 */ }
-    finally { delete this.live[conversationId]; }
-    await db().campaigns.update(campaign.id, { state: { ...campaign.state, inWorldTime: when } });
-    await repo.addMessage(conversationId, 'user', `（时间来到：${when}${note ? '。' + note : ''}。之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, inWorldTs: when });
-    await this.runTurn(conversationId);
-  }
-
-  /** 手动触发一次合并（设置或角色页用） */
+  /** 手动触发一次合并（设置或他的主页用） */
   async consolidateNow(conversationId: string) { return consolidate(conversationId, { force: true, reason: '手动' }); }
 
   private async consolidateAll() {
@@ -99,33 +79,32 @@ class ChatEngine {
   private async runTurn(conversationId: string) {
     const conv = await db().conversations.get(conversationId);
     const character = conv && (await repo.characterOfConversation(conv));
-    const campaign = conv && (await db().campaigns.get(conv.campaignId));
-    const world = campaign && (await db().worlds.get(campaign.worldId));
-    if (!conv || !character || !campaign || !world) throw new Error('会话、角色或世界不存在');
+    if (!conv || !character) throw new Error('会话或他不存在');
 
-    const [history, lore, overlays, memories, memIndex] = await Promise.all([
+    const [history, home, memories, memIndex] = await Promise.all([
       repo.messagesOf(conversationId),
-      db().lore.filter((e) => loreApplies(e, world.id, [character.id])).toArray(),
-      db().overlays.where('campaignId').equals(campaign.id).toArray(),
-      db().memories.where('campaignId').equals(campaign.id).filter((m) => m.importance === 3).reverse().sortBy('createdAt'),
-      memoryIndex(campaign.id),
+      repo.home(),
+      db().memories.filter((m) => m.importance === 3).reverse().sortBy('createdAt'),
+      memoryIndex(),
     ]);
 
-    const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id] };
+    const pctx: PromptContext = { conversationId, characterId: character.id };
     const plugins = registry.plugins.filter((p) => registry.isEnabled(p.id));
+    // L1：扫最近几条消息，插件登记了触发词的 volatile 只在命中时才调
+    const scanText = history.slice(-SCAN_DEPTH).map(modelTextOf).join('\n');
     const pluginStable: string[] = [], pluginVolatile: string[] = [];
     for (const p of plugins) for (const c of p.promptContributors ?? []) {
       try {
         if (c.stable) pluginStable.push(await c.stable(pctx));
-        if (c.volatile) pluginVolatile.push(await c.volatile(pctx));
+        if (c.volatile && triggered(c.triggers, scanText)) pluginVolatile.push(await c.volatile(pctx));
       } catch (e) { console.warn(`[prompt] ${p.id}/${c.id}`, e); }
     }
 
     const useTools = llm.settings.tools !== false;
-    // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
-    const attached = useTools && catchup.hasAttach() ? await catchup.collectAttached(campaign, character) : [];
+    // 依附的事（如报一句今天的安排）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
+    const attached = useTools && catchup.hasAttach() ? await catchup.collectAttached(character) : [];
     if (attached.length) pluginVolatile.push(attachedPrompt(attached));
-    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached };
+    const tctx: ToolContext = { character, state: home.state, cards: [], attached };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
     const pluginCards: MessageCard[] = [];
@@ -141,10 +120,10 @@ class ChatEngine {
       }))),
     ] : [];
 
-    const { system, messages, l1Hits } = assemble({
-      world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
-      lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
-      pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules, storyTime: character.timeMode === 'story',
+    const { system, messages } = assemble({
+      character, userName: this.userName, userProfile: this.userProfile, state: home.state,
+      highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
+      pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
     });
 
     const abort = new AbortController();
@@ -179,7 +158,6 @@ class ChatEngine {
       }
       const meta: Record<string, unknown> = {};
       if (toolsUsed.length) meta.tools = toolsUsed;
-      if (l1Hits.length) meta.lore = l1Hits;
       if (cards.length) meta.cards = cards;
       if (thinking) meta.thinking = thinking;
       if (r.refusal) {
@@ -197,7 +175,7 @@ class ChatEngine {
           const isFirst = i === 0, isLast = i === parts.length - 1;
           const { cards: metaCards, ...rest } = meta;
           const mine: Record<string, unknown> = { ...(isFirst && metaCards ? { cards: metaCards } : {}), ...(isLast ? rest : {}) };
-          await repo.addMessage(conversationId, 'assistant', parts[i]!, { ...(await this.stamp(conversationId)), ...(Object.keys(mine).length ? { meta: mine } : {}) });
+          await repo.addMessage(conversationId, 'assistant', parts[i]!, Object.keys(mine).length ? { meta: mine } : {});
         }
         if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
       }

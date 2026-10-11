@@ -55,7 +55,7 @@
   <Cell title="显示思考摘要">{#snippet right()}<Toggle checked={!!llm.settings.showThinking} label="思考摘要" onchange={(v) => llm.save({ showThinking: v })} />{/snippet}</Cell>
 </List>
 <SectionTitle text="记忆与工具" />
-<List footer="开着时角色可以翻世界书、回忆、记状态、维护自己的笔记、分享歌曲。关掉只靠常驻设定和触发词，更快更省。">
+<List footer="开着时他可以回忆、记状态、维护自己的笔记、分享东西、用插件的能力。关掉只靠常驻设定，更快更省。">
   <Cell title="允许角色用工具">{#snippet right()}<Toggle checked={llm.settings.tools !== false} label="工具" onchange={(v) => llm.save({ tools: v })} />{/snippet}</Cell>
 </List>
 <SectionTitle text="联网" />

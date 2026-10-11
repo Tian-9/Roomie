@@ -64,12 +64,12 @@ roomie/
       storage/           Dexie 实例、schema、插件表命名空间、live 查询
       llm/               模型网关：Claude 适配器、流式、缓存、计费
       chat/              聊天引擎：工具循环、标签解析
-      context/           上下文拼装：L0/L1/L2、memfs、搜索、工具
+      context/           上下文拼装：L0/L1/L2、笔记（memfs）、搜索、工具
       memory/            记忆整理（Haiku 合并）
       catchup/           补发：按档位合成一次调用
       scheduler/         前台定时器 + 回到前台触发补发
       data/              repo（写）与 view（插件只读视图）
-      importers/         角色卡 PNG/JSON（lorebook / preset / stChat 待删）
+      importers/         角色卡 PNG/JSON 和导入前扫描
       theme/             主题 token
       nav/               导航栏与浏览器历史
       ui/                基础组件库
@@ -86,32 +86,38 @@ roomie/
 
 ## 5. 核心数据模型
 
-M0 阶段内核数据模型与 Pocketverse 相同（见 `src/kernel/storage/db.ts`）：`characters`、`campaigns`、`conversations`、`messages`、`memories`、`memfs`、`kv`、`usage`、`logs`，以及暂未删除的 `worlds`、`lore`、`overlays`。
-
-目标模型（M1 完成后）：
+内核表（M1 起，见 `src/kernel/storage/db.ts`）：`home`、`characters`、`conversations`、`messages`、`memories`、`notes`、`kv`、`usage`、`logs`。Pocketverse 的 `worlds`、`lore`、`overlays`、`campaigns` 已删除；旧库打开时 Dexie 会删掉这些表，`memfs` 因为主键变了（Dexie 不能改主键）换成了 `notes`。
 
 ```ts
-// 他：唯一常驻角色。可以换卡（换性格），但下面的记忆不动
-interface Character { id; name; avatar?; core; full; voice? }
+// 他：人设卡。可以有好几张（换人设），但下面的东西都不跟卡走
+interface Character { id; name; avatar?; core; full; firstMessage?; useFirstMessage?; voice? }
 
-// 你：用户画像，L0 常驻
-interface UserProfile { facts: string[]; preferences: string[] }
-
-// 记忆归用户，不归存档。characterId 只记"这是谁视角记的"
-interface EpisodicMemory { id; when; text; importance: 1|2|3; sourceMessageIds; createdAt }
+// 你的世界和他的这一局：全库只有一行，id 固定 'home'。Pocketverse 的 Campaign 退化到这里
+interface Home { id: 'home'; state: State; lastActiveAt: number; catchupAt?: number }
 
 // 当前状态：他的情绪、你们的关系、最近 20 条事实，进 L0
 interface State { mood: string; relation: string; facts: string[] }
+
+// 记忆归你，不归哪张卡。characterId 只记"这是谁视角记的"
+interface EpisodicMemory { id; characterId?; when; text; importance: 1|2|3; sourceMessageIds; createdAt }
+
+// 他的笔记本 /memories（Claude memory 工具的后端），全库一棵树
+interface MemFile { path; content; updatedAt }
+
+// 一张卡一个私聊会话；记忆整理的进度记在会话上
+interface Conversation { id; kind; participantIds; pluginId; consolidatedUpTo?; consolidateFailedAt? }
 ```
 
-Pocketverse 的 `Campaign` 在这里退化成一个隐含的单例："你的世界，和他的这一局"。界面上不出现"存档"概念。
+你的名字和画像在 kv（`kernel.userName`、`kernel.userProfile`），L0 常驻。"常驻的他"是 kv 里的一个指针（`kernel.currentCharacter`）：最近给谁发消息谁就是，补发只找他。界面上不出现"存档"和"世界"。
+
+插件看到的是 `ctx.data`：`currentCharacter()`、`character(id)`、`characters()`、`state()`、`memories(opts)`、`messages({ from, to, limit })`、`userProfile()`，全是只读快照。
 
 ### 5.1 三层记忆
 
 和 Pocketverse 一致，只是"正典"换了来源：
 
 - **L0 常驻**：全局规则、用户画像、他的 core、当前状态、近期要事（importance=3）、各插件 `promptContributors` 的稳定部分。进 system，参与缓存。
-- **L1 触发**：扫最近几条消息的关键词，命中插件登记的触发规则（记账插件：提到"花了"就带上本周支出；日程插件：提到"明天"就带上明天的安排）。进最后一条用户消息。
+- **L1 触发**：扫最近几条消息的关键词，命中插件登记的触发规则（记账插件：提到"花了"就带上本周支出；日程插件：提到"明天"就带上明天的安排）。进最后一条用户消息。登记方式是 `promptContributors[].triggers: string[]`：给了就只在命中时才调 `volatile`，不给就每轮都调。
 - **L2 按需**：模型自己调工具翻：`memory_search`、`memory_recent`、memfs，以及插件工具（`ledger_query`、`schedule_list`）。
 
 写回：模型调 `state_update` / memory 工具直接落库；每 N 轮或切出 App 时用 Haiku 合并一次，产出情节记忆和状态变化。
@@ -130,7 +136,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
   - 日记插件（`d1`）：昨天的复盘。
   - 日程插件（`attach`）：今天有什么，顺口提一句。
   - 记账插件（`days`，周一）：上周花销小结。
-- 他开口的第一句由内核拼：早安 / 好久不见，加各段结果。预算：一次最多一轮调用。
+- 他开口的第一句由内核拼：每段的 schema 可以带一个可选的 `say` 字段（他处理完想顺口说的一句），内核把问候语（`h6` 不打招呼、`d1`"早"、`days`"好久不见"）和各段的 `say` 合成**一条**他发来的消息，写进和他的私聊，并发 `notify`。没人想说话就不发。预算：一次最多一轮调用。
 
 ### 6.2 能力包是插件
 
@@ -162,8 +168,8 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 | 里程碑 | 内容 | 验收 |
 |---|---|---|
 | **M0 搬家** ✅ | 从 Pocketverse 搬骨架：内核全留，插件只留信息 / 他 / 日记 / 设置；删掉世界书、风格、剧情插件；改名 | `npm run lint` 和 `npm run build` 过，能导入一张卡、配 Key、聊天、补写日记 |
-| M1 一个人 | 记忆改挂用户：删 `worlds` / `lore` / `overlays` 表和相关内核代码，`Campaign` 退化为单例，界面上去掉"世界 / 存档"；首次打开引导（他自我介绍、问你几个问题）；用户画像进 L0 | 换角色卡后他仍记得你；设置里看不到任何"世界" |
-| M2 三个能力包 | 记账、日程提醒、每日复盘三个插件；补发做成"打开时他跟你说早安 + 昨日小结" | 开关插件桌面随之变化；离开一天回来有早安和复盘；说"昨天花了多少"他能答 |
+| **M1 一个人** ✅ | 记忆改挂用户：删 `worlds` / `lore` / `overlays` / `campaigns` 表和相关内核代码、lorebook / preset / stChat 导入器，`Campaign` 退化为 `home` 单例，界面上去掉"世界 / 存档 / 剧情时间"；插件接口去掉 `campaignId`，加 `ctx.data.messages()`、`triggers`、补发 `say` | 换人设后他仍记得你；旧库打开能升级；设置和主页里看不到任何"世界 / 存档" |
+| M2 三个能力包 | 首次打开引导（他自我介绍、问你几个问题，答案进用户画像）；记账、日程提醒、每日复盘三个插件；补发做成"打开时他跟你说早安 + 昨日小结" | 清库打开走完引导能聊天；开关插件桌面随之变化；离开一天回来有早安和复盘；说"昨天花了多少"他能答 |
 | M3 走出浏览器 | Telegram Bot 推送插件；整库导入导出；PIN 加密 Key | 关掉网页也能在 Telegram 收到他的消息 |
 
 ## 8. 文案

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { NavBar, Sheet, List, Cell, Avatar, Glyph, Icon, Field, Button, ShareCardView, icons } from '$kernel/api';
+  import { NavBar, Sheet, List, Cell, Avatar, Glyph, Icon, ShareCardView, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
@@ -36,15 +36,6 @@
     await chat.send(id, msg.text, Object.keys(meta).length ? { meta } : {});
   }
   const wechat = $derived(theme.chatStyle === 'wechat');
-  let timeSheet = $state(false);
-  let timeWhen = $state('');
-  let timeNote = $state('');
-  function advance() {
-    const w = timeWhen.trim(); if (!w) return;
-    timeSheet = false;
-    chat.advanceTime(id, w, timeNote.trim() || undefined);
-    timeWhen = ''; timeNote = '';
-  }
   let picked = $state<Message | null>(null);
   // 引用：长按一条 → 「引用」，输入框上方出现引用条，随下一条文字消息发出去。存的是原文截断，原消息撤回了也还显示
   let quoting = $state<MessageQuote | null>(null);
@@ -104,9 +95,7 @@
   function caption(m: Message): string {
     const meta = m.meta ?? {};
     const parts: string[] = [];
-    const lore = meta.lore as string[] | undefined;
     const tools = meta.tools as string[] | undefined;
-    if (lore?.length) parts.push('触发设定：' + lore.join('、'));
     if (tools?.length) parts.push('用了 ' + [...new Set(tools)].map(toolLabel).join('、'));
     return parts.join(' · ');
   }
@@ -114,10 +103,9 @@
   function showTime(i: number) {
     const m = messages.value[i]!, p = messages.value[i - 1];
     if (!p) return true;
-    if (m.inWorldTs || p.inWorldTs) return m.inWorldTs !== p.inWorldTs; // 剧情时间变了才显示
     return m.ts - p.ts > 10 * 60 * 1000;
   }
-  function timeLabel(m: Message) { return m.inWorldTs ?? fmt(m.ts); }
+  function timeLabel(m: Message) { return fmt(m.ts); }
 </script>
 
 <div class="conv" class:wechat>
@@ -191,27 +179,17 @@
   {#if active && conv.value && character.value}
     {@const Comp = active.component}
     {@const a = active}
-    <Comp conversationId={id} campaignId={conv.value.campaignId} characterId={character.value.id} onsend={(m: OutgoingMessage) => sendOutgoing(a, m)} onclose={() => (active = null)} />
+    <Comp conversationId={id} characterId={character.value.id} onsend={(m: OutgoingMessage) => sendOutgoing(a, m)} onclose={() => (active = null)} />
   {/if}
 </Sheet>
 
 <Sheet bind:open={menu} title={character.value?.name}>
   <List>
     <Cell title="重新生成最后一条" onclick={() => { menu = false; chat.regenerate(id); }} />
-    <Cell title="推进时间…" subtitle="比如「三天后的早上」，角色会接着这个时间点说话" onclick={() => { menu = false; timeSheet = true; }} />
-    <Cell title="他的主页" subtitle="状态、钱包、朋友圈、他记得什么" onclick={() => { menu = false; openProfile(); }} />
-    <Cell title="编辑角色卡" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
+    <Cell title="他的主页" subtitle="状态、他记得什么" onclick={() => { menu = false; openProfile(); }} />
+    <Cell title="编辑人设" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
     <Cell title="清空对话" onclick={clearAll} />
   </List>
-</Sheet>
-<Sheet bind:open={timeSheet} title="推进时间">
-  <div onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); advance(); } }} role="presentation">
-  <List footer="会在对话里插一条旁白，并把剧情时间更新成你写的。真实时间模式下也能用，只是下一轮角色仍会看到真实时钟；想完全按剧情走，去角色页打开「剧情时间模式」。">
-    <Field label="来到" bind:value={timeWhen} placeholder="三天后的早上" />
-    <Field multiline rows={2} bind:value={timeNote} placeholder="这段时间发生了什么，可选" />
-  </List>
-  <div class="actions"><Button onclick={advance}>推进</Button></div>
-  </div>
 </Sheet>
 <Sheet open={!!picked} onclose={() => (picked = null)} title="这条消息">
   <List>
@@ -256,7 +234,6 @@
   .send { width: 34px; height: 34px; border-radius: 17px; background: var(--tint); display: grid; place-items: center; flex: 0 0 auto; margin-bottom: 1px; }
   .send:disabled { background: var(--fill); }
   .send.stop { background: var(--label); }
-  .actions { display: flex; flex-direction: column; margin: 12px 16px 0; }
   .send.stop span { width: 12px; height: 12px; border-radius: 2px; background: var(--bg-surface); }
   .plus { width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; flex: 0 0 auto; margin-bottom: 1px; transition: transform 0.2s; }
   .plus.open { transform: rotate(45deg); }

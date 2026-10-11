@@ -27,4 +27,9 @@
 
 ## 和 Pocketverse 的边界
 - 能力包是插件，不是角色；人格和记忆只有一份。不要为"理财专精""厨师专精"建新角色。
-- M1 前内核里还有 `worlds` / `lore` / `overlays` 表和 importers 里的 lorebook / preset / stChat，是待删代码，不要在上面加功能。
+- 没有世界书、没有存档：记忆、状态、他的笔记（`notes` 表）全库一份，`home` 表只有一行（`HOME_ID`）。不要给任何东西加 `campaignId`。
+- "常驻的他"是 kv `kernel.currentCharacter`，最近给谁发消息谁就是；补发只找他。
+- 插件读对话走 `ctx.data.messages({ from, to })`，不要 import `$kernel/storage/db`。
+- `promptContributors` 的 `volatile` 想省 token 就登记 `triggers`，命中才注入。
+- 补发段想让他顺口说一句，在自己的 schema 里加可选的 `say`，内核会合成一条他发来的消息；插件不要自己往 `messages` 表写。
+- Dexie 不能改主键：表的主键要变只能换表名（`memfs` → `notes` 就是这么来的）。

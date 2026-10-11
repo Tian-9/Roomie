@@ -8,7 +8,7 @@ describe('kernel tools', () => {
 });
 
 describe('share tool', () => {
-  const ctx = { campaign: {} as any, characters: [{ name: '林晚秋' }] as any, lore: [], overlays: [], cards: [] as any[], attached: [] as any[] };
+  const ctx = { character: { id: 'c', name: '林晚秋' } as any, state: { mood: '', relation: '', facts: [] }, cards: [] as any[], attached: [] as any[] };
   const resolver = { type: 'music', label: '歌', hint: 'music：歌', resolve: async (q: any) => ({ card: { type: 'music', title: q.title, quote: q.quote }, forModel: `找到了 ${q.title}，{{char}} 可以引` }) };
 
   it('is absent without resolvers and lists resolver types as the enum', async () => {
@@ -33,12 +33,12 @@ describe('handle_attached tool', () => {
   it('applies the matching task once and rejects unknown keys', async () => {
     const { attachedTool, attachedPrompt } = await import('./tools');
     const applied: unknown[] = [];
-    const task = { key: 'moments_replies', ctx: { campaignId: 'cp' } as any, item: { label: '朋友圈评论', prompt: '对方评论了', schema: { type: 'object' }, apply: async (o: unknown) => { applied.push(o); } } };
-    const ctx = { campaign: {} as any, characters: [] as any, lore: [], overlays: [], cards: [], attached: [task] };
-    expect(attachedPrompt([task])).toContain('key：moments_replies');
-    expect(await attachedTool.handler({ key: 'moments_replies', output: { replies: [] } }, ctx as any)).toBe('朋友圈评论 已处理。');
-    expect(applied).toEqual([{ replies: [] }]);
-    expect(await attachedTool.handler({ key: 'moments_replies', output: {} }, ctx as any)).toContain('没有 key');
+    const task = { key: 'schedule_today', ctx: { characterId: 'c' } as any, item: { label: '今天的安排', prompt: '今天有什么', schema: { type: 'object' }, apply: async (o: unknown) => { applied.push(o); } } };
+    const ctx = { character: { id: 'c', name: 'x' } as any, state: { mood: '', relation: '', facts: [] }, cards: [], attached: [task] };
+    expect(attachedPrompt([task])).toContain('key：schedule_today');
+    expect(await attachedTool.handler({ key: 'schedule_today', output: { said: true } }, ctx as any)).toBe('今天的安排 已处理。');
+    expect(applied).toEqual([{ said: true }]);
+    expect(await attachedTool.handler({ key: 'schedule_today', output: {} }, ctx as any)).toContain('没有 key');
     expect(attachedPrompt([])).toBe('');
   });
 });

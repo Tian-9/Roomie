@@ -30,12 +30,12 @@
     }
   }
   async function createBlank() {
-    const c = await repo.createCharacter({ name: '新角色', core: '', full: '' });
+    const c = await repo.createCharacter({ name: '他', core: '', full: '' });
     nav.push('characters', 'detail', { id: c.id });
   }
 </script>
 
-<NavBar title="角色" large back="桌面">
+<NavBar title="他" large back="桌面">
   {#snippet right()}
     <button class="iconbtn" onclick={() => fileInput.click()} aria-label="导入角色卡" disabled={busy}><Glyph paths={icons.plus} size={24} color="var(--tint)" width={2.2} /></button>
   {/snippet}
@@ -43,10 +43,10 @@
 <input type="file" accept=".png,.json,image/png,application/json" multiple bind:this={fileInput} onchange={onFiles} hidden />
 
 {#if chars.value.length === 0}
-  <Placeholder title="还没有角色" body="点右上角 + 导入 PNG 或 JSON 角色卡。导入前会先进检查页，可疑内容删干净再入库。" paths={icons.person} />
+  <Placeholder title="他还没搬进来" body="点右上角 + 导入 PNG 或 JSON 角色卡，或者新建一个空白人设。导入前会先进检查页，可疑内容删干净再入库。" paths={icons.person} />
   <div class="actions">
     <button class="link" onclick={() => fileInput.click()}>导入角色卡</button>
-    <button class="link" onclick={createBlank}>新建空白角色</button>
+    <button class="link" onclick={createBlank}>新建空白人设</button>
   </div>
 {:else}
   <List>
@@ -56,7 +56,7 @@
       </Cell>
     {/each}
   </List>
-  <div class="actions"><button class="link" onclick={createBlank}>新建空白角色</button></div>
+  <div class="actions"><button class="link" onclick={createBlank}>新建空白人设</button></div>
 {/if}
 <div style="height:40px"></div>
 

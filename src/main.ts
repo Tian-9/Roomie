@@ -6,6 +6,7 @@ import App from './App.svelte';
 import { builtinPlugins } from './plugins';
 import { registry } from '$kernel/registry/registry.svelte';
 import { openDB } from '$kernel/storage/db';
+import { repo } from '$kernel/data/repo';
 import { theme } from '$kernel/theme/theme.svelte';
 import { scheduler } from '$kernel/scheduler/scheduler';
 import { nav } from '$kernel/nav/nav.svelte';
@@ -19,6 +20,8 @@ async function boot() {
   for (const p of builtinPlugins) registry.register(p);
   openDB(builtinPlugins);
   log.boot();
+  // home 单例先建好，之后界面可以直接 live 读它（liveQuery 里不能写库）
+  await repo.home();
   await theme.boot();
   await llm.boot();
   await chat.boot();

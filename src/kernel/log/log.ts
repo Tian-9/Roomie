@@ -22,7 +22,7 @@ class Logger {
     bus.on('app.closed', (p) => this.info('app', `关闭 ${p.pluginId}，回到桌面`));
     bus.on('app.resumed', (p) => this.info('app', `回到前台，离开了 ${Math.round(p.elapsedMs / 60000)} 分钟`));
     bus.on('llm.turn.error', (p) => this.error('chat', p.message, { conversationId: p.conversationId }));
-    bus.on('memory.consolidated', (p) => this.info('consolidate', `合并完成：${p.memories} 条记忆，${p.overlays} 条变化`, { campaignId: p.campaignId }));
+    bus.on('memory.consolidated', (p) => this.info('consolidate', `合并完成：${p.memories} 条记忆`, { conversationId: p.conversationId }));
     bus.on('notify', (p) => this.info('notify', p.title, p.body ? { body: p.body } : undefined));
     this.info('app', '启动', { build: typeof __BUILD__ === 'string' ? __BUILD__ : 'dev' });
   }

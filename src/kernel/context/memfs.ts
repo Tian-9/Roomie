@@ -1,7 +1,7 @@
 import { db } from '../storage/db';
 
 /**
- * Claude memory 工具（memory_20250818）的后端：每个存档一棵 /memories 树，存在 memfs 表。
+ * Claude memory 工具（memory_20250818）的后端：一棵 /memories 树，存在 notes 表。全库一份，不按卡分。
  * 命令语义照 Anthropic 文档：view / create / str_replace / insert / delete / rename。
  */
 export interface MemCommand {
@@ -19,10 +19,10 @@ function norm(p: string): string {
   return clean.replace(/\/$/, '') || ROOT;
 }
 
-export async function runMemoryCommand(campaignId: string, cmd: MemCommand): Promise<string> {
-  const t = db().memfs;
+export async function runMemoryCommand(cmd: MemCommand): Promise<string> {
+  const t = db().notes;
   const path = norm(cmd.command === 'rename' ? cmd.old_path ?? cmd.path : cmd.path);
-  const get = () => t.where('[campaignId+path]').equals([campaignId, path]).first();
+  const get = () => t.get(path);
   switch (cmd.command) {
     case 'view': {
       const file = await get();
@@ -31,13 +31,13 @@ export async function runMemoryCommand(campaignId: string, cmd: MemCommand): Pro
         const [a, b] = cmd.view_range ?? [1, lines.length];
         return lines.slice(a - 1, b).map((l, i) => `${a + i}: ${l}`).join('\n');
       }
-      const all = await t.where('campaignId').equals(campaignId).toArray();
+      const all = await t.toArray();
       const under = all.filter((f) => f.path.startsWith(path + '/') || path === ROOT);
       if (!under.length && path !== ROOT) throw new Error(`不存在：${path}`);
       return `目录 ${path}：\n` + (under.map((f) => f.path).sort().join('\n') || '（空）');
     }
     case 'create': {
-      await t.put({ campaignId, path, content: cmd.file_text ?? '', updatedAt: Date.now() });
+      await t.put({ path, content: cmd.file_text ?? '', updatedAt: Date.now() });
       return `已写入 ${path}`;
     }
     case 'str_replace': {
@@ -57,17 +57,17 @@ export async function runMemoryCommand(campaignId: string, cmd: MemCommand): Pro
       return `已插入 ${path}`;
     }
     case 'delete': {
-      const all = await t.where('campaignId').equals(campaignId).toArray();
+      const all = await t.toArray();
       const victims = all.filter((f) => f.path === path || f.path.startsWith(path + '/'));
       if (!victims.length) throw new Error(`不存在：${path}`);
-      await t.bulkDelete(victims.map((f) => [campaignId, f.path] as [string, string]));
+      await t.bulkDelete(victims.map((f) => f.path));
       return `已删除 ${path}`;
     }
     case 'rename': {
       const to = norm(cmd.new_path ?? '');
       const file = await get();
       if (!file) throw new Error(`不存在：${path}`);
-      await t.delete([campaignId, path]);
+      await t.delete(path);
       await t.put({ ...file, path: to, updatedAt: Date.now() });
       return `已改名为 ${to}`;
     }
@@ -75,8 +75,8 @@ export async function runMemoryCommand(campaignId: string, cmd: MemCommand): Pro
 }
 
 /** 给 L0 用：列出记忆目录里的文件名和首行，让模型知道有什么可以看。 */
-export async function memoryIndex(campaignId: string): Promise<string> {
-  const files = await db().memfs.where('campaignId').equals(campaignId).toArray();
+export async function memoryIndex(): Promise<string> {
+  const files = await db().notes.toArray();
   if (!files.length) return '';
   return files.sort((a, b) => a.path.localeCompare(b.path)).map((f) => `- ${f.path}：${f.content.split('\n')[0]?.slice(0, 60) ?? ''}`).join('\n');
 }

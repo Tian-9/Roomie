@@ -1,43 +1,29 @@
 import { ulid } from 'ulid';
-import { db } from '../storage/db';
-import type { World, Character, Campaign, Conversation, Message } from '../storage/db';
+import { db, HOME_ID, EMPTY_STATE } from '../storage/db';
+import type { Character, Conversation, Home, Message, State } from '../storage/db';
 import type { MessageCard } from '../api/types';
 import { expandMacros } from '../context/macros';
 
-/** 当前存档的指针：kv 里 `kernel.currentCampaign.<characterId>` */
-const currentKey = (characterId: string) => `kernel.currentCampaign.${characterId}`;
+/** 常驻的他：kv 里 `kernel.currentCharacter`。最近给谁发消息，谁就是他；补发、桌面只看他 */
+const CURRENT_KEY = 'kernel.currentCharacter';
 
 /**
- * 领域操作。一个角色默认一个存档；同一张卡可以在不同世界各开一局，「当前这一局」用 kv 指针记着，
- * 聊天、主页、补发都只看当前这一局。
+ * 领域操作。全库只有一局（home 单例）：记忆、状态、笔记都是你的，不按卡隔离。
+ * 一张卡一个私聊会话；换卡聊天记录各算各的，但他记得的事不变。
  */
 export const repo = {
-  async ensureDefaultWorld(): Promise<World> {
-    const existing = await db().worlds.orderBy('createdAt').first();
+  /** home 单例，没有就建。启动时调一次，之后界面可以直接 live 读 db().home.get(HOME_ID) */
+  async home(): Promise<Home> {
+    const existing = await db().home.get(HOME_ID);
     if (existing) return existing;
-    const w: World = { id: ulid(), name: '默认世界', summary: '', createdAt: Date.now(), updatedAt: Date.now() };
-    await db().worlds.add(w);
-    return w;
+    const fresh: Home = { id: HOME_ID, state: { ...EMPTY_STATE, facts: [] }, lastActiveAt: 0 };
+    await db().home.put(fresh);
+    return fresh;
   },
 
-  async createWorld(name: string, summary = ''): Promise<World> {
-    const w: World = { id: ulid(), name: name.trim() || '未命名世界', summary: summary.trim(), createdAt: Date.now(), updatedAt: Date.now() };
-    await db().worlds.add(w);
-    return w;
-  },
-
-  async updateWorld(id: string, patch: Partial<Pick<World, 'name' | 'summary'>>) {
-    await db().worlds.update(id, { ...patch, updatedAt: Date.now() });
-  },
-
-  /** 删世界连它的条目一起删；有存档在用就拒绝（返回 false），免得把别人的记忆删没了 */
-  async deleteWorld(id: string): Promise<boolean> {
-    if (await db().campaigns.where('worldId').equals(id).count()) return false;
-    await db().transaction('rw', [db().worlds, db().lore], async () => {
-      await db().lore.where('worldId').equals(id).delete();
-      await db().worlds.delete(id);
-    });
-    return true;
+  async updateState(state: State): Promise<void> {
+    await this.home();
+    await db().home.update(HOME_ID, { state: { mood: state.mood, relation: state.relation, facts: [...state.facts] } });
   },
 
   async createCharacter(input: Omit<Character, 'id'>): Promise<Character> {
@@ -50,80 +36,34 @@ export const repo = {
     await db().characters.update(id, patch);
   },
 
+  /** 删卡只删和这张卡的对话；记忆、状态、笔记是你的，留下 */
   async deleteCharacter(id: string) {
-    const campaigns = await db().campaigns.filter((c) => c.characterIds.includes(id)).toArray();
-    await db().transaction('rw', [db().characters, db().campaigns, db().conversations, db().messages, db().memories, db().overlays, db().kv], async () => {
-      for (const c of campaigns) await this.deleteCampaign(c.id);
+    await db().transaction('rw', [db().characters, db().conversations, db().messages, db().kv], async () => {
+      const convs = await db().conversations.filter((c) => c.participantIds.includes(id)).toArray();
+      for (const cv of convs) await db().messages.where('conversationId').equals(cv.id).delete();
+      await db().conversations.bulkDelete(convs.map((c) => c.id));
       await db().characters.delete(id);
+      if ((await db().getKV<string | null>(CURRENT_KEY, null)) === id) await db().kv.delete(CURRENT_KEY);
     });
   },
 
-  async deleteCampaign(id: string) {
-    const convs = await db().conversations.where('campaignId').equals(id).toArray();
-    for (const cv of convs) await db().messages.where('conversationId').equals(cv.id).delete();
-    await db().conversations.where('campaignId').equals(id).delete();
-    await db().memories.where('campaignId').equals(id).delete();
-    await db().overlays.where('campaignId').equals(id).delete();
-    await db().campaigns.delete(id);
-    for (const row of await db().kv.where('key').startsWith('kernel.currentCampaign.').toArray()) {
-      if (row.value === id) await db().kv.delete(row.key);
-    }
+  /** 常驻的他：指针指向的卡；没指针或卡已删就取第一张 */
+  async currentCharacter(): Promise<Character | undefined> {
+    const id = await db().getKV<string | null>(CURRENT_KEY, null);
+    if (id) { const c = await db().characters.get(id); if (c) return c; }
+    return db().characters.orderBy('name').first();
   },
 
-  /** 这张卡的所有存档（单人局），按创建顺序 */
-  async campaignsOf(characterId: string): Promise<Campaign[]> {
-    const all = await db().campaigns.filter((c) => c.characterIds.length === 1 && c.characterIds[0] === characterId).toArray();
-    return all.sort((a, b) => a.createdAt - b.createdAt);
+  async setCurrentCharacter(id: string) {
+    await db().setKV(CURRENT_KEY, id);
   },
 
-  /** 角色当前这一局，没有就在默认世界建一局。 */
-  async campaignFor(character: Character): Promise<Campaign> {
-    const currentId = await db().getKV<string | null>(currentKey(character.id), null);
-    if (currentId) { const c = await db().campaigns.get(currentId); if (c) return c; }
-    const mine = await this.campaignsOf(character.id);
-    if (mine.length) {
-      const latest = mine.reduce((a, b) => (b.lastPlayedAt > a.lastPlayedAt ? b : a));
-      await db().setKV(currentKey(character.id), latest.id);
-      return latest;
-    }
-    return this.newCampaign(character, (await this.ensureDefaultWorld()).id);
-  },
-
-  /** 给这张卡在某个世界新开一局，并切成当前这一局 */
-  async newCampaign(character: Character, worldId: string): Promise<Campaign> {
-    const world = await db().worlds.get(worldId);
-    const c: Campaign = {
-      id: ulid(), worldId, characterIds: [character.id], name: world?.name ?? character.name,
-      createdAt: Date.now(), lastPlayedAt: Date.now(),
-      state: { relations: {}, mood: {}, facts: [] },
-    };
-    await db().campaigns.add(c);
-    await db().setKV(currentKey(character.id), c.id);
-    return c;
-  },
-
-  async setCurrentCampaign(characterId: string, campaignId: string) {
-    await db().setKV(currentKey(characterId), campaignId);
-  },
-
-  /** 所有角色当前这一局的 id：列表、补发、朋友圈只看这些，别的局先睡着 */
-  async currentCampaignIds(): Promise<Set<string>> {
-    const out = new Set<string>();
-    for (const ch of await db().characters.toArray()) {
-      const id = await db().getKV<string | null>(currentKey(ch.id), null);
-      if (id) { out.add(id); continue; }
-      const mine = await this.campaignsOf(ch.id);
-      if (mine.length) out.add(mine.reduce((a, b) => (b.lastPlayedAt > a.lastPlayedAt ? b : a)).id);
-    }
-    return out;
-  },
-
-  /** 角色的私聊会话，没有就建，并写入开场白。 */
+  /** 他的私聊会话，没有就建，并写入开场白。打开和他的聊天，他就成了常驻的他。 */
   async directConversation(character: Character, pluginId = 'chat'): Promise<Conversation> {
-    const campaign = await this.campaignFor(character);
-    const found = await db().conversations.where('campaignId').equals(campaign.id).filter((c) => c.kind === 'direct' && c.pluginId === pluginId).first();
+    await this.setCurrentCharacter(character.id);
+    const found = await db().conversations.where('pluginId').equals(pluginId).filter((c) => c.kind === 'direct' && c.participantIds[0] === character.id).first();
     if (found) return found;
-    const conv: Conversation = { id: ulid(), campaignId: campaign.id, kind: 'direct', participantIds: [character.id], pluginId };
+    const conv: Conversation = { id: ulid(), kind: 'direct', participantIds: [character.id], pluginId };
     await db().conversations.add(conv);
     if (character.useFirstMessage && character.firstMessage?.trim()) {
       const userName = await db().getKV('kernel.userName', '我');
@@ -135,8 +75,8 @@ export const repo = {
   async addMessage(conversationId: string, role: Message['role'], text: string, extra: Partial<Message> = {}): Promise<Message> {
     const m: Message = { id: ulid(), conversationId, role, content: [{ type: 'text', text }], ts: Date.now(), ...extra };
     await db().messages.add(m);
-    const conv = await db().conversations.get(conversationId);
-    if (conv) await db().campaigns.update(conv.campaignId, { lastPlayedAt: Date.now() });
+    await this.home();
+    await db().home.update(HOME_ID, { lastActiveAt: Date.now() });
     return m;
   },
 
@@ -160,8 +100,8 @@ export function cardsOf(m: Message): MessageCard[] {
 }
 
 /**
- * 给模型看的文字：正文 + 各卡片的 alt。只有卡片的回复这样才能进历史，否则角色下一轮就不记得自己发过。
- * 用户从「+」面板发的 cardOnly 消息，text 本身就是给模型的描述，不再追加 alt。
+ * 给模型看的文字：正文 + 各卡片的 alt。只有卡片的回复这样才能进历史，否则他下一轮就不记得自己发过。
+ * 从「+」面板发的 cardOnly 消息，text 本身就是给模型的描述，不再追加 alt。
  */
 export function modelTextOf(m: Message): string {
   // 撤回：界面上是一行小灰字，模型只知道撤回了，看不到原文（{{user}} 在拼装时换成名字）

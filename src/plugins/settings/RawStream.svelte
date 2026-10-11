@@ -63,7 +63,7 @@
       thinking: { type: 'adaptive', display: 'omitted' }, output_config: { effort: 'medium' },
       betas: ['server-side-fallback-2026-07-01', 'context-management-2025-06-27'], fallbacks: 'default',
       context_management: { edits: [{ type: 'clear_tool_uses_20250919' }] },
-      tools: ['lore_search', 'lore_read', 'memory_search', 'memory_recent', 'state_update', 'overlay_write', 'memory_20250818'],
+      tools: ['memory_search', 'memory_recent', 'character_read', 'state_update', 'memory_20250818'],
       system: [{ 字数: 386 }, { 字数: 1874, cache_control: { type: 'ephemeral' } }],
       messages: [
         { role: 'user', blocks: ['text(14 字)'] },

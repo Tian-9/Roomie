@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { NavBar, Placeholder, Avatar, Glyph, Sheet, List, Cell, Button, icons } from '$kernel/api';
-  import { live } from '$kernel/storage/live.svelte';
-  import { db } from '$kernel/storage/db';
+  import { NavBar, Placeholder, Avatar, Glyph, Sheet, List, Cell, Button, live, icons } from '$kernel/api';
+  import type { CharacterView } from '$kernel/api';
   import { registry } from '$kernel/registry/registry.svelte';
   import { bus } from '$kernel/bus/bus';
   import { diaryApi, today, type DiaryEntry } from './index';
@@ -9,14 +8,17 @@
   interface Row extends DiaryEntry { name: string; avatar?: Blob }
   const rows = live(async (): Promise<Row[]> => {
     if (!registry.isEnabled('diary')) return [];
-    const { repo } = await import('$kernel/data/repo');
-    const current = await repo.currentCampaignIds();
-    const es = (await diaryApi.entries().reverse().sortBy('date')).filter((e) => current.has(e.campaignId));
+    const es = await diaryApi.entries().reverse().sortBy('date');
+    const chars = await diaryApi.characters();
     const out: Row[] = [];
-    for (const e of es) { const ch = await db().characters.get(e.characterId); if (ch) out.push({ ...e, name: ch.name, avatar: ch.avatar }); }
+    for (const e of es) {
+      // 写它的人设删了也还显示，归到现在的他名下
+      const ch = chars.find((c) => c.id === e.characterId) ?? (await diaryApi.current());
+      out.push({ ...e, name: ch?.name ?? '他', avatar: ch?.avatar });
+    }
     return out;
   }, []);
-  const chars = live(() => db().characters.toArray(), []);
+  const chars = live((): Promise<CharacterView[]> => (registry.isEnabled('diary') ? diaryApi.characters() : Promise.resolve([])), []);
   let picking = $state(false);
   let busy = $state(false);
   let reading = $state<Row | null>(null);
@@ -24,12 +26,9 @@
   async function writeFor(characterId: string) {
     picking = false; busy = true;
     try {
-      const ch = await db().characters.get(characterId); if (!ch) return;
-      const { repo } = await import('$kernel/data/repo');
-      const cp = await repo.campaignFor(ch);
       const date = today();
-      if (await diaryApi.forDate(cp.id, date)) { bus.emit('notify', { title: '今天已经写过了', body: '删掉再写可以重写' }); return; }
-      const e = await diaryApi.write(cp.id, ch.id, date, 'manual');
+      if (await diaryApi.forDate(date)) { bus.emit('notify', { title: '今天已经写过了', body: '删掉再写可以重写' }); return; }
+      const e = await diaryApi.write(characterId, date, 'manual');
       if (!e) bus.emit('notify', { title: '没写出来', body: '先在设置里配置 API Key' });
     } catch (e) { bus.emit('notify', { title: '生成失败', body: e instanceof Error ? e.message : String(e) }); }
     finally { busy = false; }
@@ -40,12 +39,12 @@
 
 <NavBar title="日记" large back="桌面">
   {#snippet right()}
-    <button class="iconbtn" onclick={() => (picking = true)} aria-label="让角色写今天的日记" disabled={busy}><Glyph paths={icons.plus} size={24} color="var(--tint)" width={2.2} /></button>
+    <button class="iconbtn" onclick={() => (picking = true)} aria-label="让他写今天的日记" disabled={busy}><Glyph paths={icons.plus} size={24} color="var(--tint)" width={2.2} /></button>
   {/snippet}
 </NavBar>
 
 {#if rows.value.length === 0}
-  <Placeholder title="还没有日记" body="你离开 6 小时以上再回来，角色会补写前一天的日记（那天得聊过）。右上角 + 可以让他现在写今天的。" paths={icons.diary} />
+  <Placeholder title="还没有日记" body="你离开 6 小时以上再回来，他会补写前一天的日记（那天得聊过）。右上角 + 可以让他现在写今天的。" paths={icons.diary} />
 {:else}
   <div class="feed">
     {#each rows.value as e (e.id)}
@@ -64,7 +63,7 @@
 <Sheet bind:open={picking} title="让谁写今天的日记">
   <List>
     {#each chars.value as c (c.id)}<Cell title={c.name} onclick={() => writeFor(c.id)} />{/each}
-    {#if !chars.value.length}<Cell title="还没有角色" />{/if}
+    {#if !chars.value.length}<Cell title="他还没搬进来" />{/if}
   </List>
 </Sheet>
 <Sheet open={!!reading} onclose={() => (reading = null)} title={reading ? `${reading.name} · ${reading.date}` : ''}>
