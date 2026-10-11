@@ -15,9 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # 仓库还没开 Pages 的话顺手开上（Source = GitHub Actions），省得第一次部署 404
-      - uses: actions/configure-pages@v5
-        with: { enablement: true }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
