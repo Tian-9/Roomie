@@ -31,5 +31,5 @@
 - "常驻的他"是 kv `kernel.currentCharacter`，最近给谁发消息谁就是；补发只找他。
 - 插件读对话走 `ctx.data.messages({ from, to })`，不要 import `$kernel/storage/db`。
 - `promptContributors` 的 `volatile` 想省 token 就登记 `triggers`，命中才注入。
-- 补发段想让他顺口说一句，在自己的 schema 里加可选的 `say`，内核会合成一条他发来的消息；插件不要自己往 `messages` 表写。
+- 补发段想让他顺口说一句，在自己的 schema 里加可选的 `say`，内核会合成一条他发来的消息；插件不要自己往 `messages` 表写。段的 `say` 自带问候就标 `greets: true`，内核不再在前面加「早」。
 - Dexie 不能改主键：表的主键要变只能换表名（`memfs` → `notes` 就是这么来的）。

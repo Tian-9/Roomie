@@ -37,11 +37,11 @@ export function elapsedText(ms: number): string {
   return `大约 ${Math.round(ms / H)} 小时`;
 }
 
-/** 各段结果里的 say 合成他发来的一条消息；没人想说就不发 */
-export function composeSay(tier: Exclude<CatchupTier, 'attach'>, outputs: unknown[]): string {
+/** 各段结果里的 say 合成他发来的一条消息；没人想说就不发。有段自带问候（greets）就不加档位问候 */
+export function composeSay(tier: Exclude<CatchupTier, 'attach'>, outputs: unknown[], greets = false): string {
   const says = outputs.map((o) => (o && typeof o === 'object' && typeof (o as { say?: unknown }).say === 'string' ? (o as { say: string }).say.trim() : '')).filter(Boolean);
   if (!says.length) return '';
-  return [GREETING[tier], ...says].filter(Boolean).join('\n');
+  return [greets ? '' : GREETING[tier], ...says].filter(Boolean).join('\n');
 }
 
 interface Collected { key: string; item: CatchupItem }
@@ -150,7 +150,9 @@ class Catchup {
       catch (e) { log.error('catchup', `${key} 落库失败：${e instanceof Error ? e.message : String(e)}`); }
     }
     // 各段想说的话合成一条他发来的消息
-    const say = composeSay(tier, done.map((k) => out[k]));
+    // 自带问候的段真说了话才省掉档位问候，它没开口就还是由内核打招呼
+    const greeted = items.some((i) => i.item.greets && done.includes(i.key) && composeSay('h6', [out[i.key]]) !== '');
+    const say = composeSay(tier, done.map((k) => out[k]), greeted);
     if (say) {
       const conv = await repo.directConversation(ch);
       await repo.addMessage(conv.id, 'assistant', say, { meta: { catchup: tier } });

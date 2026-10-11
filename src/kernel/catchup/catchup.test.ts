@@ -23,6 +23,7 @@ describe('catchup tiers', () => {
     expect(composeSay('days', [{ say: '昨天那篇日记写完了' }, { text: 'x' }, { say: ' ' }, null])).toBe('好久不见。\n昨天那篇日记写完了');
     expect(composeSay('h6', [{ say: '今天三点开会' }])).toBe('今天三点开会');
     expect(composeSay('d1', [{ text: 'x' }])).toBe('');
+    expect(composeSay('d1', [{ say: '早安，昨天聊到挺晚' }, { say: '今天三点开会' }], true)).toBe('早安，昨天聊到挺晚\n今天三点开会');
   });
 });
 

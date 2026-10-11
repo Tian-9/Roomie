@@ -186,6 +186,8 @@ export interface CatchupItem {
    * 可以约定一个可选字符串字段 `say`（他想顺口跟对方说的一句），内核会把各段的 say 合成一条他发来的消息。
    */
   schema: Record<string, unknown>;
+  /** 这一段的 say 自带问候（如复盘按时段说早安 / 回来了），内核就不再在前面加「早」「好久不见」 */
+  greets?: boolean;
   /** 模型答完，这一段的结果 */
   apply(output: unknown, ctx: CatchupContext): Promise<void>;
 }
