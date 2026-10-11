@@ -198,5 +198,7 @@ export default definePlugin({
     { id: 'daily', tier: 'd1', collect: (c) => collectDaily(c) },
     { id: 'weekly', tier: 'attach', collect: (c) => collectWeekly(c) },
   ],
+  /** 给别的插件（账本）用：`weeklyEnabled()` 周小结开着没有；开着的话上周花销由周小结一起说，账本不用再提 */
+  services: { review: { weeklyEnabled: async () => (await reviewApi.settings()).weekly } },
   setup(c) { ctx = c; },
 });

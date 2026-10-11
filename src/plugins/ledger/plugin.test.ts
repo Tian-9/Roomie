@@ -7,6 +7,7 @@ import { lastWeekRange, weekRange } from './ledger';
 const pc = (addCard?: PromptContext['addCard']): PromptContext => ({ conversationId: 'cv1', characterId: 'c1', addCard });
 const tool = (name: string) => plugin.tools!.find((t) => t.name === name)!;
 const kv = new Map<string, unknown>();
+const services = new Map<string, unknown>();
 
 beforeAll(() => {
   openDB([plugin]);
@@ -15,6 +16,7 @@ beforeAll(() => {
     table: (n: string) => db().table(pluginTable('ledger', n)),
     settings: { get: async <T,>(k: string, d: T) => (kv.has(k) ? (kv.get(k) as T) : d), set: async (k: string, v: unknown) => { kv.set(k, v); } },
     emit() {},
+    service: (name: string) => services.get(name),
   } as unknown as PluginContext;
   plugin.setup!(ctx);
 });
@@ -82,6 +84,12 @@ describe('ledger tools', () => {
     expect(await collectWeekly(c, new Date(2026, 2, 3))).toBeNull();
     await ledgerApi.add({ amount: 800, category: '交通', note: '', date: '2026-03-04', source: 'manual' });
     expect((await collectWeekly(c, new Date(2026, 2, 9)))!.prompt).toContain('¥8');
+    // 复盘的周小结开着：上周花销由它说，账本不再单独提；关了就照旧
+    services.set('review', { weeklyEnabled: async () => true });
+    expect(await collectWeekly(c, new Date(2026, 2, 9))).toBeNull();
+    services.set('review', { weeklyEnabled: async () => false });
+    expect(await collectWeekly(c, new Date(2026, 2, 9))).not.toBeNull();
+    services.delete('review');
   });
 });
 

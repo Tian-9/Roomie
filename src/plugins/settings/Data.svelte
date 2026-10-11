@@ -80,7 +80,7 @@
   const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false }); };
 </script>
 
-<NavBar title="数据" back="设置" />
+<NavBar title="备份与恢复" back="设置" />
 <input type="file" accept=".json,application/json" bind:this={fileInput} onchange={onFile} hidden />
 
 <SectionTitle text="现在有" />

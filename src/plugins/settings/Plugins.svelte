@@ -19,13 +19,13 @@
 <SectionTitle text="内核" />
 <List>
   {#each core as p (p.id)}
-    <Cell title={p.name} subtitle={describe(p)} icon={p.app?.icon} value="内核" />
+    <Cell title={p.name} subtitle={p.description || describe(p)} icon={p.app?.icon} value="内核" />
   {/each}
 </List>
 <SectionTitle text="插件" />
 <List footer="关闭插件后数据保留，重新开启即恢复。">
   {#each optional as p (p.id)}
-    <Cell title={p.name} subtitle={describe(p)} icon={p.app?.icon}>
+    <Cell title={p.name} subtitle={p.description || describe(p)} icon={p.app?.icon}>
       {#snippet right()}
         <Toggle checked={registry.isEnabled(p.id)} label={p.name} onchange={(v) => registry.setEnabled(p.id, v)} />
       {/snippet}

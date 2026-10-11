@@ -10,7 +10,7 @@ const H = 3600_000;
 
 describe('catchup tiers', () => {
   it('maps elapsed time to tiers and higher tiers cover lower ones', async () => {
-    const { tierFor, covers, elapsedText, composeSay } = await import('./catchup');
+    const { tierFor, covers, elapsedText, composeSay, speakOrder } = await import('./catchup');
     expect(tierFor(5 * H)).toBeNull();
     expect(tierFor(6 * H)).toBe('h6');
     expect(tierFor(30 * H)).toBe('d1');
@@ -24,6 +24,8 @@ describe('catchup tiers', () => {
     expect(composeSay('h6', [{ say: '今天三点开会' }])).toBe('今天三点开会');
     expect(composeSay('d1', [{ text: 'x' }])).toBe('');
     expect(composeSay('d1', [{ say: '早安，昨天聊到挺晚' }, { say: '今天三点开会' }], true)).toBe('早安，昨天聊到挺晚\n今天三点开会');
+    // 自带问候的段先说，不管它登记在第几个
+    expect(speakOrder([{ key: 'ledger' }, { key: 'review', greets: true }, { key: 'dates' }]).map((i) => i.key)).toEqual(['review', 'ledger', 'dates']);
   });
 });
 

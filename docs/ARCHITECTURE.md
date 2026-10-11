@@ -78,7 +78,13 @@ roomie/
     plugins/
       chat/              信息（内核级，不可关闭）；输入框的麦克风（识别结果填进输入框，不自动发）和他消息上的朗读按钮，浏览器不支持就不出现
       characters/        他：人设、主页、记忆、人设卡导入、首次引导；编辑人设里选朗读音色和语速，存人设卡的 voice 字段
-      diary/             日记：他替你写的每日复盘（示范插件）
+      diary/             日记：他写给自己的一天（示范插件）
+      ledger/            账本：记一笔、查一下、上周花销
+      habits/            习惯：想坚持的事、打卡、连续天数
+      schedule/          日程：安排、待办、到点提醒、农历和节假日
+      dates/             纪念日：生日、纪念日、倒数日
+      weather/           天气：你那边今天什么天气
+      review/            复盘：早安 + 昨天的复盘、周小结
       settings/          API、外观、插件开关、日志、整库导出导入
     main.ts              启动：内核 → 注册插件 → 挂载 shell
 ```
@@ -139,7 +145,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
   - 复盘插件（`d1`）：早安 + 昨天的复盘；（`attach`，周日晚上 / 周一）周小结。日记插件（`h6`）另写他自己的日记。
   - 日程插件（`attach`）：今天有什么，顺口提一句；（`h6`）走开这几小时里到点了的事，问一句怎么样了。
   - 记账插件（`days`，周一）：上周花销小结。
-- 他开口的第一句由内核拼：每段的 schema 可以带一个可选的 `say` 字段（他处理完想顺口说的一句），内核把问候语（`h6` 不打招呼、`d1`"早"、`days`"好久不见"）和各段的 `say` 合成**一条**他发来的消息，写进和他的私聊，并发 `notify`。没人想说话就不发。段上标 `greets: true` 表示它的 `say` 自带问候（复盘按时段说早安 / 回来了），它真开口了内核就不再加档位问候。预算：一次最多一轮调用。
+- 他开口的第一句由内核拼：每段的 schema 可以带一个可选的 `say` 字段（他处理完想顺口说的一句），内核把问候语（`h6` 不打招呼、`d1`"早"、`days`"好久不见"）和各段的 `say` 合成**一条**他发来的消息，写进和他的私聊，并发 `notify`。没人想说话就不发。段上标 `greets: true` 表示它的 `say` 自带问候（复盘按时段说早安 / 回来了），它真开口了内核就不再加档位问候，而且它的 `say` 排在最前面，不管插件顺序。system 里告诉模型各段拼的是同一条消息：只有要求打招呼的那段打招呼，几段材料里的同一件事只说一遍，「在回消息就留空」的规则在补发里不适用。预算：一次最多一轮调用。
 
 ### 6.2 能力包是插件
 
@@ -152,7 +158,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 | `promptContributors.volatile` | 本周支出一行摘要，`triggers` 是「花了、买了、多少钱…」，提到才注入 |
 | `composerActions` | 「+」面板里的"记一笔"：你主动发，产出带账单卡的 `OutgoingMessage` |
 | `outputHandlers` | `bill` 账单卡片（`attrs` 里带快照，那笔删了也还能显示） |
-| `catchup` | `days` 档：周一到周三回来、上周有记录且这周没说过，他顺口提一句上周花销（`say`） |
+| `catchup` | `days` 档：周一到周三回来、上周有记录且这周没说过，他顺口提一句上周花销（`say`）；复盘插件的周小结开着就不提（花销由周小结一起说） |
 | `profileSections` | 他的主页上挂"本月花了多少" |
 | `services` | `ledger`：`monthTotal()`、`range(from, to)`，复盘插件拿昨天花了多少用这个 |
 | `storage` | `p_ledger_entries` 表（`id, date, category`） |
@@ -162,7 +168,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 已有的能力包（各插件合入时在这里补一行自己的贡献点）：
 
 - `habits` 习惯打卡：表 `habits` / `checks`；工具 `habit_add`、`habit_check`、`habit_status`；`check` 卡片；`volatile` 一行连续天数（触发词：打卡、坚持、习惯…）；补发 `attach` 档晚上八点后问一句今天没打的；主页段「习惯」；服务 `habits`（`summary()` / `status()`）。
-- `review` 复盘（`src/plugins/review`，已实现）：`p_review_reviews` 表（`id, date, kind, createdAt`，`kind` 日报 / 周报）；工具 `review_read`；补发 `d1` 档"早安 + 昨天的复盘"（`greets`，按设置里的早安时段说早安或回来了，离开几天就看几天，最多 7 天）、`attach` 档周小结（周日 18 点后或周一，一周一次，设置里可关）；材料从 `ledger` / `habits` / `schedule` / `lunar` 服务拿，没装哪个就不提哪样；复盘本按天列出正文和当天材料（聊了几条、花了多少、做完 / 没做的日程）；不进每轮提示词。
+- `review` 复盘（`src/plugins/review`，已实现）：`p_review_reviews` 表（`id, date, kind, createdAt`，`kind` 日报 / 周报）；工具 `review_read`；补发 `d1` 档"早安 + 昨天的复盘"（`greets`，按设置里的早安时段说早安或回来了，离开几天就看几天，最多 7 天）、`attach` 档周小结（周日 18 点后或周一，一周一次，设置里可关）；材料从 `ledger` / `habits` / `schedule` / `lunar` 服务拿，没装哪个就不提哪样；复盘本按天列出正文和当天材料（聊了几条、花了多少、做完 / 没做的日程）；不进每轮提示词；服务 `review`（`weeklyEnabled()`，账本据此决定要不要单独提上周花销）。
 - `schedule` 日程与提醒（`src/plugins/schedule`，已实现）：`p_schedule_items` 表；工具 `schedule_add` / `schedule_list` / `schedule_done` / `schedule_remove`；`event` 卡片；「+」面板"记个日程"；`volatile` 一段今天 / 明天 / 下个假期（触发词：明天、后天、几点、提醒…）；补发 `attach` 档"今天还有什么"（一天提一次）、`h6` 档"你走开时错过了什么"；主页上挂下一件事；前台每半分钟查一次到点的提醒（内核 `notify` + 浏览器 `Notification`，不承诺后台推送）；服务 `schedule`（今天 / 区间 / 接下来几件）和 `lunar`（农历、法定节假日表，2026 按国办通知，2027 预估）。
 - `dates` 纪念日 / 倒数日（`src/plugins/dates`，已实现）：`p_dates_dates` 表（`id, month, day`，字段 title / month / day / year? / lunar / kind）；工具 `date_add` / `date_list` / `date_remove`，kind 分生日、纪念日（每年过，记了年份算几岁 / 几周年）和倒数日（只有那一天）；`date` 卡片；`volatile` 一行七天内的日子（没有就不注入）加一句 stable 的记法说明；补发 `attach` 档今天或明天有日子他顺口提一句（每次只提一回）；主页上挂最近的一个；农历日子通过 `ctx.service('lunar')` 从日程插件拿换算，日程没开就只支持公历；服务 `dates`（`upcoming(days)` / `summary()`）。
 - `weather` 天气（`src/plugins/weather`，已实现）：Open-Meteo 预报 + 空气质量 + 城市搜索，不要 Key；定位（反查地名）或手选城市，地点和预报缓存存 `settings`，每小时最多拉一次；`volatile` 一行「你那边：北京 12°C 小雨，今天 8~15°C，空气良」，没有触发词（每轮一行，没设地点或拉不到就不带）；补发 `attach` 档早上 5–11 点只在明显变化时（降温 / 升温 ≥ 5°C、有雨雪、风大、空气差、高温 / 严寒）提一句，一天一次；界面一屏：当前 + 24 小时 + 7 天 + 日出日落；网络失败静默退回缓存，聊天不受影响；服务 `weather`（`line()` 一行、`today()` 结构化的今天含 `notes`、`place()`），复盘 / 早安插件拿今天天气用这个。
@@ -191,8 +197,8 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 |---|---|---|
 | **M0 搬家** ✅ | 从 Pocketverse 搬骨架：内核全留，插件只留信息 / 他 / 日记 / 设置；删掉世界书、风格、剧情插件；改名 | `npm run lint` 和 `npm run build` 过，能导入一张卡、配 Key、聊天、补写日记 |
 | **M1 一个人** ✅ | 记忆改挂用户：删 `worlds` / `lore` / `overlays` / `campaigns` 表和相关内核代码、lorebook / preset / stChat 导入器，`Campaign` 退化为 `home` 单例，界面上去掉"世界 / 存档 / 剧情时间"；插件接口去掉 `campaignId`，加 `ctx.data.messages()`、`triggers`、补发 `say` | 换人设后他仍记得你；旧库打开能升级；设置和主页里看不到任何"世界 / 存档" |
-| M2 三个能力包 | 首次打开引导（他自我介绍、问你几个问题，答案进用户画像）；记账、日程提醒、每日复盘三个插件；补发做成"打开时他跟你说早安 + 昨日小结" | 清库打开走完引导能聊天；开关插件桌面随之变化；离开一天回来有早安和复盘；说"昨天花了多少"他能答 |
-| M3 走出浏览器 | Telegram Bot 推送插件；整库导入导出；PIN 加密 Key | 关掉网页也能在 Telegram 收到他的消息 |
+| **M2 能力包** ✅ | 首次打开引导（他自我介绍、问你几个问题，答案进用户画像）；记账、习惯、日程提醒、纪念日、天气、复盘六个插件；补发做成"打开时他跟你说早安 + 昨日小结"；整库导出导入 | 清库打开走完引导能聊天；开关插件桌面随之变化；离开一天回来有早安和复盘；说"昨天花了多少"他能答 |
+| M3 走出浏览器 | Telegram Bot 推送插件；PIN 加密 Key | 关掉网页也能在 Telegram 收到他的消息 |
 
 ## 8. 文案
 

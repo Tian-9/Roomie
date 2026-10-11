@@ -134,8 +134,8 @@ async function collectToday(_c: CatchupContext): Promise<CatchupItem | null> {
   if (!left.length) return null;
   return {
     label: '今天的安排',
-    prompt: `对方今天还有：${left.map((i) => (i.date < today ? `${i.title}（${whenLabel(i.date, i.time, today)}，还没做）` : i.time ? `${i.time} ${i.title}` : `${i.title}（待办）`)).join('、')}。回消息的时候顺口带一句，像朋友随口提醒，不要列清单，不用每条都提。提了就 mentioned 给 true，这次不合适提就给 false。`,
-    schema: { type: 'object', additionalProperties: false, required: ['mentioned'], properties: { mentioned: { type: 'boolean' } } },
+    prompt: `对方今天还有：${left.map((i) => (i.date < today ? `${i.title}（${whenLabel(i.date, i.time, today)}，还没做）` : i.time ? `${i.time} ${i.title}` : `${i.title}（待办）`)).join('、')}。回消息的时候顺口带一句，像朋友随口提醒，不要列清单，不用每条都提。提了就 mentioned 给 true，这次不合适提就给 false。不是在回消息的话，想说的那句放 say 里。`,
+    schema: { type: 'object', additionalProperties: false, required: ['mentioned'], properties: { mentioned: { type: 'boolean' }, say: { type: 'string', description: '如果不是在回消息，这里放你想顺口说的那句；在回消息就留空' } } },
     async apply(out: unknown) {
       if ((out as { mentioned?: boolean } | undefined)?.mentioned !== false) await ctx.settings.set('mentioned', today);
     },

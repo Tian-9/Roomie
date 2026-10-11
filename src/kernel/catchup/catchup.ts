@@ -44,6 +44,11 @@ export function composeSay(tier: Exclude<CatchupTier, 'attach'>, outputs: unknow
   return [greets ? '' : GREETING[tier], ...says].filter(Boolean).join('\n');
 }
 
+/** 开口的顺序：自带问候的段（复盘的早安）先说，其余按登记顺序。不然插件顺序一变，「早安」就跑到消息中间去了 */
+export function speakOrder<T extends { greets?: boolean }>(items: T[]): T[] {
+  return [...items.filter((i) => i.greets), ...items.filter((i) => !i.greets)];
+}
+
 interface Collected { key: string; item: CatchupItem }
 
 /**
@@ -127,7 +132,9 @@ class Catchup {
     const system = `你是「${ch.name}」，住在对方手机里的人。设定：${ch.core.slice(0, 800)}
 你有一阵没碰手机了，现在拿起手机处理几件事。每件事按它的说明回答，用中文，按给定的 JSON 结构输出。
 保持自己的口吻，像真人用手机：短、口语、不解释。不要提到"用户"这个词，称呼对方用你平时的叫法。不想做的事可以不做，各段说明里写了怎么表示。
-有的事带一个 say 字段：那是你处理完想顺口跟对方说的一句话，会和别的话拼成一条消息发给对方，没话说就留空。`;
+有的事带一个 say 字段：那是你处理完想顺口跟对方说的一句话，各段的 say 会按顺序拼成同一条消息发给对方，没话说就留空。
+因为拼的是同一条消息：只有说明里要求打招呼的那一段开头打招呼，其他段直接说事，不要再问候、不要再叫一遍名字；几段材料里有同一件事（同一笔花销、同一个安排）就只在一段里说，别的段留空。
+你现在是主动拿起手机说话，不是在回对方的消息：各段说明里"在回消息就留空 / 揉进回复里"的情况都不适用，想说的都放进 say。`;
     const user = [
       `# 情况\n对方离开了${ctx.elapsedText}。现在是 ${new Date(now).toLocaleString('zh-CN', { hour12: false })}。\n你现在的情绪：${home.state.mood || '平常'}\n最近记得的事：\n${mems.slice(0, 6).map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}`,
       '# 要处理的事',
@@ -152,7 +159,7 @@ class Catchup {
     // 各段想说的话合成一条他发来的消息
     // 自带问候的段真说了话才省掉档位问候，它没开口就还是由内核打招呼
     const greeted = items.some((i) => i.item.greets && done.includes(i.key) && composeSay('h6', [out[i.key]]) !== '');
-    const say = composeSay(tier, done.map((k) => out[k]), greeted);
+    const say = composeSay(tier, speakOrder(items.filter((i) => done.includes(i.key)).map((i) => ({ key: i.key, greets: i.item.greets }))).map((i) => out[i.key]), greeted);
     if (say) {
       const conv = await repo.directConversation(ch);
       await repo.addMessage(conv.id, 'assistant', say, { meta: { catchup: tier } });

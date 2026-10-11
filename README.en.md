@@ -15,11 +15,15 @@ Roomie is the real-world fork of [Pocketverse](https://github.com/Tian-9/pocketv
 
 ## Status
 
-**M1: one person.** On top of the M0 skeleton ported from Pocketverse, lorebooks, multiple worlds and save slots are gone: memory, state and their notes exist exactly once, follow you, and survive swapping the persona. The plugin API has no "save slot" any more, and gained reading conversations by time range, L1 keyword triggers and a `say` line for catch-up.
+**M2: capability packs.** After M1 removed lorebooks, worlds and save slots, this round moves someone in and gives them things to do:
 
-What works today: on first launch, onboarding lets you pick who moves in (three built-in personas, a one-line description the model turns into one, or a card import), enter a Claude API key, and they speak first: an introduction and three questions (what to call you, when you sleep, what you are busy with), then you are straight in the conversation; they remember things, and when you come back after a while they write up yesterday's diary.
+- **Onboarding**: pick who moves in (three built-in personas, a one-line description the model turns into one, or a card import), enter a Claude API key, and they speak first: an introduction and three questions (what to call you, when you sleep, what you are busy with), then you are straight in the conversation.
+- **Six packs**: ledger (say "lunch 32" in chat and it is recorded), habits (things to keep up, check-ins, streaks), schedule ("meeting tomorrow at 3" gets recorded and reminded), dates (birthdays and countdowns, lunar too), weather (what it is like where you are, with a word when it turns cold or rainy) and review (come back after a day and they say good morning and talk about yesterday; a weekly summary on Sunday night). All plugins, all switchable in settings.
+- **Catch-up on open**: how long you were away decides what they say, and every plugin's line is merged into one message from them.
+- **Backup**: export the whole database as one JSON from settings and import it on a new phone.
+- **Voice**: a mic in the composer, read-aloud on their messages, voice picked in the persona; browser built-ins only, no third-party TTS.
 
-Next steps are in section 7 of the architecture doc: the ledger, schedule and daily review plugins.
+Next steps are in section 7 of the architecture doc: Telegram push and a PIN-encrypted key.
 
 ## Development
 

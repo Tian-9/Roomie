@@ -60,6 +60,9 @@ const billAlt = (e: Entry) => `[记了一笔账：${describe(e)}，${e.date}]`;
 /** 补发 · 上周花销：离开 ≥ 2 天、新一周刚开始（周一到周三）回来，上周有记录且这周还没说过 */
 export async function collectWeekly(_c: CatchupContext, now = new Date()) {
   if (!isEarlyWeek(now)) return null;
+  // 复盘插件的周小结开着的话，上周花销由它一起说，这里不再单独提一遍
+  const review = ctx.service<{ weeklyEnabled(): Promise<boolean> }>('review');
+  if (review && (await review.weeklyEnabled().catch(() => false))) return null;
   const week = weekRange(ymd(now)).from;
   if ((await ctx.settings.get<string>('weeklySaid', '')) === week) return null;
   const { from, to } = lastWeekRange(ymd(now));
