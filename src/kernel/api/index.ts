@@ -45,3 +45,6 @@ export { default as Avatar } from '../ui/Avatar.svelte';
 export { default as Glyph } from '../ui/Glyph.svelte';
 export { default as ShareCardView } from '../ui/ShareCard.svelte';
 export { icons, gradients } from '../ui/icons';
+
+/** 语音：浏览器自带的听和说。没有的浏览器就是没有，先 canListen() / canSpeak() 再显示按钮 */
+export { canListen, canSpeak, recognitionCtor, listen, Speaker, loadVoices, pickVoice, sortVoicesForPicker, voiceLabel, type VoicePref, type VoiceLike } from '../speech/speech';

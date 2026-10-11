@@ -73,10 +73,11 @@ roomie/
       theme/             theme tokens
       nav/               navigation and browser history
       ui/                base UI kit
+      speech/            voice: the browser's own SpeechRecognition and speechSynthesis, no third-party TTS
       api/               $kernel/api: the only module plugins may import
     plugins/
-      chat/              Messages (kernel-level, cannot be disabled)
-      characters/        Them: persona, profile, memories, card import, first-run onboarding
+      chat/              Messages (kernel-level, cannot be disabled); the composer's mic (recognised text fills the box, never auto-sends) and a read-aloud button on their messages, both hidden when the browser lacks the API
+      characters/        Them: persona, profile, memories, card import, first-run onboarding; the persona editor picks the read-aloud voice and rate, stored in the card's voice field
       diary/             Diary: the daily review they write for you (sample plugin)
       settings/          API, appearance, plugin toggles, logs, full-database export / import
     main.ts              boot: kernel → register plugins → mount shell

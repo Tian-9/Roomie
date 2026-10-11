@@ -11,7 +11,9 @@
   import { toolLabel } from '$kernel/context/tools';
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
-  import type { ComposerAction, OutgoingMessage, MessageCard } from '$kernel/api';
+  import type { ComposerAction, OutgoingMessage, MessageCard, VoicePref } from '$kernel/api';
+  import { canListen, canSpeak, recognitionCtor, listen, Speaker } from '$kernel/api';
+  import { onDestroy } from 'svelte';
 
   let { id }: { id: string } = $props();
   const conv = live(() => db().conversations.get(id), undefined);
@@ -63,6 +65,48 @@
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
   }
   function grow() { textarea.style.height = 'auto'; textarea.style.height = Math.min(textarea.scrollHeight, 140) + 'px'; }
+
+  // 语音输入：浏览器自带的识别（Chrome / Safari 有，Firefox 没有就不显示按钮）。识别结果填进输入框，不自动发
+  const listenable = canListen();
+  let listening = $state(false);
+  let listenHint = $state('');
+  let stopListening: (() => void) | null = null;
+  let heard = '';
+  let interim = $state('');
+  const shown = $derived(listening && interim ? (draft ? draft + interim : interim) : draft);
+  function toggleListen() {
+    if (listening) { stopListening?.(); return; }
+    const Ctor = recognitionCtor();
+    if (!Ctor) return;
+    heard = draft; interim = ''; listenHint = '';
+    listening = true;
+    stopListening = listen(Ctor, 'zh-CN', {
+      onInterim: (t) => { interim = t; },
+      onFinal: (t) => { heard = heard ? heard + t : t; draft = heard; interim = ''; },
+      onEnd: (err) => {
+        listening = false; interim = ''; stopListening = null;
+        if (err === 'not-allowed' || err === 'service-not-allowed') listenHint = '没拿到麦克风权限，到浏览器设置里允许一下';
+        else if (err === 'no-speech') listenHint = '没听到声音';
+        else if (err === 'network') listenHint = '识别要联网，现在连不上';
+        else if (err && err !== 'aborted') listenHint = '识别出了点问题';
+        if (listenHint) setTimeout(() => (listenHint = ''), 2500);
+        tick().then(() => { grow(); textarea?.focus(); });
+      },
+    });
+  }
+
+  // 朗读他的消息：speechSynthesis，音色存在人设卡 voice 字段里；没有 speechSynthesis 的浏览器不显示
+  const speakable = canSpeak();
+  let speakingId = $state<string | null>(null);
+  const speaker = speakable ? new Speaker(speechSynthesis, SpeechSynthesisUtterance, (k) => (speakingId = k)) : null;
+  const voicePref = $derived((character.value?.voice ?? undefined) as VoicePref | undefined);
+  function toggleSpeak(m: Message) {
+    if (!speaker) return;
+    if (speakingId === m.id) speaker.stop();
+    else void speaker.speak(m.id, textOf(m), voicePref);
+  }
+  const canRead = (m: Message) => speakable && m.role === 'assistant' && !!textOf(m).trim();
+  onDestroy(() => { speaker?.stop(); stopListening?.(); });
 
   let pressTimer: ReturnType<typeof setTimeout> | undefined;
   function pressStart(m: Message) { pressTimer = setTimeout(() => (picked = m), 450); }
@@ -131,7 +175,12 @@
               {@const Card = cardComponent(c)}
               {#if Card}<Card body={c.body} attrs={c.attrs} />{/if}
             {/each}
-            {#if caption(m)}<div class="caption">{caption(m)}</div>{/if}
+            {#if caption(m) || canRead(m)}
+              <div class="caption">
+                {#if canRead(m)}<button class="speak" class:on={speakingId === m.id} onclick={() => toggleSpeak(m)} aria-label={speakingId === m.id ? '停止朗读' : '朗读'} aria-pressed={speakingId === m.id}><Glyph paths={speakingId === m.id ? icons.stopSquare : icons.speaker} size={13} width={2} /></button>{/if}
+                {#if caption(m)}<span>{caption(m)}</span>{/if}
+              </div>
+            {/if}
             {#if m.meta?.thinking}
               <button class="think-toggle" onclick={() => (openThinking[m.id] = !openThinking[m.id])}>{openThinking[m.id] ? '收起' : '他在想什么 ›'}</button>
               {#if openThinking[m.id]}<div class="think">{m.meta.thinking}</div>{/if}
@@ -149,6 +198,7 @@
     {/if}
   </div>
 
+  {#if listenHint}<div class="hint">{listenHint}</div>{/if}
   {#if quoting}
     <div class="quoting"><span class="qtext">{quoteLabel(quoting)}</span><button class="qclose" onclick={() => (quoting = null)} aria-label="取消引用">✕</button></div>
   {/if}
@@ -156,7 +206,10 @@
     {#if actions.length}
       <button class="plus" class:open={panel} onclick={() => (panel = !panel)} aria-label="更多功能"><Glyph paths={icons.plus} size={22} color={wechat ? 'var(--label)' : 'var(--tint)'} width={2.2} /></button>
     {/if}
-    <textarea bind:this={textarea} bind:value={draft} placeholder={wechat ? '' : '信息'} rows="1" oninput={grow} onkeydown={onKey} onfocus={() => (panel = false)} enterkeyhint="send"></textarea>
+    <textarea bind:this={textarea} value={shown} oninput={(e) => { draft = e.currentTarget.value; grow(); }} placeholder={listening ? '在听……' : wechat ? '' : '信息'} rows="1" onkeydown={onKey} onfocus={() => (panel = false)} enterkeyhint="send" readonly={listening}></textarea>
+    {#if listenable && status === 'idle'}
+      <button class="mic" class:on={listening} onclick={toggleListen} aria-label={listening ? '停止听' : '语音输入'} aria-pressed={listening}><Glyph paths={icons.mic} size={20} color={listening ? '#fff' : wechat ? 'var(--label)' : 'var(--tint)'} width={2.2} /></button>
+    {/if}
     {#if status !== 'idle'}
       <button class="send stop" onclick={() => chat.stop(id)} aria-label="停止"><span></span></button>
     {:else}
@@ -195,6 +248,7 @@
   <List>
     <Cell title="复制" onclick={copyPicked} />
     {#if picked && textOf(picked).trim()}<Cell title="引用" onclick={quotePicked} />{/if}
+    {#if picked && canRead(picked)}<Cell title={speakingId === picked.id ? '停止朗读' : '朗读'} subtitle="音色在「编辑人设」里选" onclick={() => { if (picked) toggleSpeak(picked); picked = null; }} />{/if}
     {#if picked && canRecall(picked)}<Cell title="撤回" subtitle="他那边会变成「撤回了一条消息」，看不到内容" onclick={recallPicked} />{/if}
     <Cell title="删除" onclick={deletePicked} />
     <Cell title="取消" onclick={() => (picked = null)} />
@@ -214,7 +268,11 @@
   .msg.assistant { align-self: flex-start; }
   .col { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .avatar-btn { display: inline-flex; flex: 0 0 auto; padding: 0; }
-  .caption { font-size: 11px; color: var(--label-3); padding-left: 6px; }
+  .caption { font-size: 11px; color: var(--label-3); padding-left: 6px; display: flex; align-items: center; gap: 6px; }
+  .speak { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 11px; color: var(--label-2); background: var(--fill-2); }
+  .speak.on { color: var(--tint-fg); background: var(--tint); }
+  .user .caption { justify-content: flex-end; }
+  .hint { font-size: 12px; color: var(--label-2); text-align: center; padding: 4px 14px 0; background: var(--bg-grouped); }
   .quote { font-size: 13px; line-height: 1.35; color: var(--label-2); background: var(--fill-2); border-radius: 8px; padding: 5px 9px; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
   .user .quote { align-self: flex-end; }
   .quoting { display: flex; align-items: center; gap: 8px; padding: 6px 14px 0; background: var(--bg-grouped); }
@@ -235,6 +293,9 @@
   .send:disabled { background: var(--fill); }
   .send.stop { background: var(--label); }
   .send.stop span { width: 12px; height: 12px; border-radius: 2px; background: var(--bg-surface); }
+  .mic { width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; flex: 0 0 auto; margin-bottom: 1px; }
+  .mic.on { background: var(--red); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 45%, transparent) } 60% { box-shadow: 0 0 0 7px transparent } }
   .plus { width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; flex: 0 0 auto; margin-bottom: 1px; transition: transform 0.2s; }
   .plus.open { transform: rotate(45deg); }
   .panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 8px; padding: 14px 16px calc(var(--safe-bottom) + 14px); background: var(--bg-grouped); border-top: 0.5px solid var(--separator); }
@@ -254,5 +315,6 @@
   .conv.wechat .composer, .conv.wechat .panel, .conv.wechat .quoting { background: var(--wx-bar); }
   .conv.wechat textarea { border-radius: 6px; border: 0; }
   .conv.wechat .send { border-radius: 6px; background: #07c160; }
+  .conv.wechat .mic { border-radius: 6px; }
   .conv.wechat .time, .conv.wechat .sys { color: var(--label-2); }
 </style>

@@ -73,10 +73,11 @@ roomie/
       theme/             主题 token
       nav/               导航栏与浏览器历史
       ui/                基础组件库
+      speech/            语音：浏览器自带的听（SpeechRecognition）和说（speechSynthesis），不接第三方 TTS
       api/               $kernel/api：插件唯一能 import 的入口
     plugins/
-      chat/              信息（内核级，不可关闭）
-      characters/        他：人设、主页、记忆、人设卡导入、首次引导
+      chat/              信息（内核级，不可关闭）；输入框的麦克风（识别结果填进输入框，不自动发）和他消息上的朗读按钮，浏览器不支持就不出现
+      characters/        他：人设、主页、记忆、人设卡导入、首次引导；编辑人设里选朗读音色和语速，存人设卡的 voice 字段
       diary/             日记：他替你写的每日复盘（示范插件）
       settings/          API、外观、插件开关、日志、整库导出导入
     main.ts              启动：内核 → 注册插件 → 挂载 shell
