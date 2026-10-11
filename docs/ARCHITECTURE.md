@@ -1,0 +1,172 @@
+# Roomie 架构
+
+> 住在你口袋里的他。外壳是一部虚拟手机，人格和记忆只有一份，能力靠插件长出来。本文是项目的设计基线，代码以此为准，改设计先改这里。English: [ARCHITECTURE.en.md](ARCHITECTURE.en.md)。
+
+## 0. 一句话
+
+**微内核 + 插件 + 三层记忆，服务一个人。** 内核只管手机外壳、存储、模型网关、上下文拼装、补发和插件注册表。聊天、日记、记账、日程，全部是插件。内核不认识"记账"是什么，也不认识"他"是谁，只认识角色卡和记忆。
+
+## 1. 和 Pocketverse 的关系
+
+Roomie 从 [Pocketverse](https://github.com/Tian-9/pocketverse) 分叉。Pocketverse 为多宇宙角色扮演设计：多个世界、多张角色卡、每局一个存档，记忆挂在存档上。Roomie 只有一个世界（你的现实），所以：
+
+| | Pocketverse | Roomie |
+|---|---|---|
+| 世界 | 多个，有世界书正典 | 一个，没有世界书；"正典"就是你的数据 |
+| 角色 | 多张卡，各开各局 | 一位常驻的他；可换人设，但记忆不跟卡走 |
+| 存档 | 一卡多局，记忆按局隔离 | 一份记忆，跟用户走 |
+| 插件 | 朋友圈、红包、论坛、商店等剧情功能 | 记账、日程、复盘等生活功能 |
+| 补发 | 他在剧情里过了几天 | 他在现实里等了你几天 |
+
+能原样复用的：Shell、Storage、LLM 网关、Context 拼装器、Catchup、Scheduler、Theme、UI 组件库、Registry、Bus、角色卡导入。砍掉的：世界书（lore）、风格预设（style）、覆盖层（overlay）以及所有剧情插件。
+
+## 2. 目标与非目标
+
+目标：
+
+- 纯前端 PWA，静态文件部署（GitHub Pages），加到主屏幕即可用，无服务器。
+- 自带 API Key，浏览器直连 Claude；Gemini / OpenAI 兼容为辅。
+- 一个有人格的他：角色卡定义性格，三层记忆让他记得你。
+- 一切可见功能都是插件，能力包可开关，开关后桌面随之变化。
+- 关系优先，干活克制：第一版只做记录、提醒、回忆三类低风险能力，不做有外部副作用的操作（发邮件、改日历）。
+- 视觉统一：插件只能用内核组件库拼界面。
+
+非目标（现在不做，口子留着）：
+
+- 后台运行、锁屏推送。浏览器做不到，用"打开时补发"代替；Telegram Bot 推送以后做成插件。
+- 多端同步。先本地，同步以后做成插件。
+- 第三方插件沙箱。第一版只有内置插件。
+- 向量检索。关键词 + 模型自主搜索够用。
+
+## 3. 技术栈
+
+| 层 | 选择 | 理由 |
+|---|---|---|
+| 构建 | Vite | 快，零配置，PWA 插件现成 |
+| 语言 | TypeScript，strict | 让编译器替人查错 |
+| UI | Svelte 5 | 写法最接近 HTML，产物最小，手机上启动快 |
+| 样式 | Tailwind + CSS 变量 | 变量是主题系统的根 |
+| 存储 | Dexie（IndexedDB） | 带版本迁移，插件可以声明自己的表 |
+| 搜索 | MiniSearch | 几 KB 的内存 BM25，记忆的关键词检索 |
+| 模型 | `@anthropic-ai/sdk`（浏览器模式）为主 | 缓存、工具循环、memory 工具全用上 |
+| PWA | vite-plugin-pwa | manifest + service worker 只做离线缓存 |
+
+## 4. 仓库结构
+
+```
+roomie/
+  docs/                  设计文档（本文，中英两份）
+  src/
+    kernel/              内核，插件不能绕过它
+      shell/             锁屏、桌面、Dock、通知条
+      registry/          插件注册表、贡献点收集、services
+      bus/               事件总线
+      storage/           Dexie 实例、schema、插件表命名空间、live 查询
+      llm/               模型网关：Claude 适配器、流式、缓存、计费
+      chat/              聊天引擎：工具循环、标签解析
+      context/           上下文拼装：L0/L1/L2、memfs、搜索、工具
+      memory/            记忆整理（Haiku 合并）
+      catchup/           补发：按档位合成一次调用
+      scheduler/         前台定时器 + 回到前台触发补发
+      data/              repo（写）与 view（插件只读视图）
+      importers/         角色卡 PNG/JSON（lorebook / preset / stChat 待删）
+      theme/             主题 token
+      nav/               导航栏与浏览器历史
+      ui/                基础组件库
+      api/               $kernel/api：插件唯一能 import 的入口
+    plugins/
+      chat/              信息（内核级，不可关闭）
+      characters/        他：人设、主页、记忆、角色卡导入
+      diary/             日记：他替你写的每日复盘（示范插件）
+      settings/          API、外观、插件开关、日志
+    main.ts              启动：内核 → 注册插件 → 挂载 shell
+```
+
+规则：`plugins/*` 只能 import `$kernel/api`，不能 import 内核内部模块，也不能互相 import。插件间通信走事件总线或 `services`。
+
+## 5. 核心数据模型
+
+M0 阶段内核数据模型与 Pocketverse 相同（见 `src/kernel/storage/db.ts`）：`characters`、`campaigns`、`conversations`、`messages`、`memories`、`memfs`、`kv`、`usage`、`logs`，以及暂未删除的 `worlds`、`lore`、`overlays`。
+
+目标模型（M1 完成后）：
+
+```ts
+// 他：唯一常驻角色。可以换卡（换性格），但下面的记忆不动
+interface Character { id; name; avatar?; core; full; voice? }
+
+// 你：用户画像，L0 常驻
+interface UserProfile { facts: string[]; preferences: string[] }
+
+// 记忆归用户，不归存档。characterId 只记"这是谁视角记的"
+interface EpisodicMemory { id; when; text; importance: 1|2|3; sourceMessageIds; createdAt }
+
+// 当前状态：他的情绪、你们的关系、最近 20 条事实，进 L0
+interface State { mood: string; relation: string; facts: string[] }
+```
+
+Pocketverse 的 `Campaign` 在这里退化成一个隐含的单例："你的世界，和他的这一局"。界面上不出现"存档"概念。
+
+### 5.1 三层记忆
+
+和 Pocketverse 一致，只是"正典"换了来源：
+
+- **L0 常驻**：全局规则、用户画像、他的 core、当前状态、近期要事（importance=3）、各插件 `promptContributors` 的稳定部分。进 system，参与缓存。
+- **L1 触发**：扫最近几条消息的关键词，命中插件登记的触发规则（记账插件：提到"花了"就带上本周支出；日程插件：提到"明天"就带上明天的安排）。进最后一条用户消息。
+- **L2 按需**：模型自己调工具翻：`memory_search`、`memory_recent`、memfs，以及插件工具（`ledger_query`、`schedule_list`）。
+
+写回：模型调 `state_update` / memory 工具直接落库；每 N 轮或切出 App 时用 Haiku 合并一次，产出情节记忆和状态变化。
+
+## 6. 内核模块
+
+Shell、Registry、Bus、Storage、LLM 网关、Context 拼装器、Theme、Scheduler、补发（Catchup）的设计与 Pocketverse 相同，不再重复；细节以 Pocketverse 的 `docs/ARCHITECTURE.md` 第 5 节为准，Roomie 的差异点如下。
+
+### 6.1 补发 = 他在等你
+
+Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日记"。Roomie 里补发是产品核心，不是附属：
+
+- 回到前台立刻查一次；前台开着每小时再查一次。
+- 档位不变：`h6`（≥ 6 小时）、`d1`（≥ 24 小时）、`days`（≥ 2 天）、`attach`（挂在下一次聊天回复上）。
+- 插件登记 `catchup: [{ id, tier, collect(ctx) }]`，内核把所有插件的事合成**一次**调用。第一版预期的补发项：
+  - 日记插件（`d1`）：昨天的复盘。
+  - 日程插件（`attach`）：今天有什么，顺口提一句。
+  - 记账插件（`days`，周一）：上周花销小结。
+- 他开口的第一句由内核拼：早安 / 好久不见，加各段结果。预算：一次最多一轮调用。
+
+### 6.2 能力包是插件
+
+"专精"不是角色，是插件。一个能力包通常提供：
+
+| 贡献点 | 记账插件举例 |
+|---|---|
+| `app` | 账本界面 |
+| `tools` | `ledger_add`、`ledger_query`：他能替你记一笔、查一下 |
+| `promptContributors.volatile` | 本周支出一行摘要 |
+| `composerActions` | 「+」面板里的"记一笔"：用户主动发，产出带卡片的 `OutgoingMessage` |
+| `outputHandlers` | 账单卡片 |
+| `catchup` | 周一补一条上周小结 |
+| `profileSections` | 他的主页上挂"本月花了多少" |
+| `storage` | `p_ledger_entries` 表 |
+
+内核的 `ctx.addCard`、`share`、`services` 机制全部沿用。插件不自己听 `app.resumed` 调模型。
+
+### 6.3 推送
+
+浏览器后台定时器会被节流（Chrome 后台标签最多每分钟一次，超过 5 分钟进密集节流），手机切走后页面随时可能被回收。所以：
+
+- 前台开着：`scheduler` 每小时查一次补发，这是现成的。
+- 页面关着：不保证。Periodic Background Sync 只有 Chrome/Android 支持，作为可选增强。
+- 真要主动找你：做 Telegram Bot 插件（Bot API 是普通 HTTPS，浏览器直连，不需要服务器）。Email 收发走 Gmail API + 浏览器 OAuth。WhatsApp 不做。
+
+## 7. 里程碑
+
+| 里程碑 | 内容 | 验收 |
+|---|---|---|
+| **M0 搬家** ✅ | 从 Pocketverse 搬骨架：内核全留，插件只留信息 / 他 / 日记 / 设置；删掉世界书、风格、剧情插件；改名 | `npm run lint` 和 `npm run build` 过，能导入一张卡、配 Key、聊天、补写日记 |
+| M1 一个人 | 记忆改挂用户：删 `worlds` / `lore` / `overlays` 表和相关内核代码，`Campaign` 退化为单例，界面上去掉"世界 / 存档"；首次打开引导（他自我介绍、问你几个问题）；用户画像进 L0 | 换角色卡后他仍记得你；设置里看不到任何"世界" |
+| M2 三个能力包 | 记账、日程提醒、每日复盘三个插件；补发做成"打开时他跟你说早安 + 昨日小结" | 开关插件桌面随之变化；离开一天回来有早安和复盘；说"昨天花了多少"他能答 |
+| M3 走出浏览器 | Telegram Bot 推送插件；整库导入导出；PIN 加密 Key | 关掉网页也能在 Telegram 收到他的消息 |
+
+## 8. 文案
+
+- 他的第三人称一律用"他"。
+- 不出现"用户""助手""AI"这些词；界面上他就是他，你就是你。
