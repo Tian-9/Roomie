@@ -163,6 +163,7 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 - `habits` 习惯打卡：表 `habits` / `checks`；工具 `habit_add`、`habit_check`、`habit_status`；`check` 卡片；`volatile` 一行连续天数（触发词：打卡、坚持、习惯…）；补发 `attach` 档晚上八点后问一句今天没打的；主页段「习惯」；服务 `habits`（`summary()` / `status()`）。
 - `schedule` 日程与提醒（`src/plugins/schedule`，已实现）：`p_schedule_items` 表；工具 `schedule_add` / `schedule_list` / `schedule_done` / `schedule_remove`；`event` 卡片；「+」面板"记个日程"；`volatile` 一段今天 / 明天 / 下个假期（触发词：明天、后天、几点、提醒…）；补发 `attach` 档"今天还有什么"（一天提一次）、`h6` 档"你走开时错过了什么"；主页上挂下一件事；前台每半分钟查一次到点的提醒（内核 `notify` + 浏览器 `Notification`，不承诺后台推送）；服务 `schedule`（今天 / 区间 / 接下来几件）和 `lunar`（农历、法定节假日表，2026 按国办通知，2027 预估）。
 - `dates` 纪念日 / 倒数日（`src/plugins/dates`，已实现）：`p_dates_dates` 表（`id, month, day`，字段 title / month / day / year? / lunar / kind）；工具 `date_add` / `date_list` / `date_remove`，kind 分生日、纪念日（每年过，记了年份算几岁 / 几周年）和倒数日（只有那一天）；`date` 卡片；`volatile` 一行七天内的日子（没有就不注入）加一句 stable 的记法说明；补发 `attach` 档今天或明天有日子他顺口提一句（每次只提一回）；主页上挂最近的一个；农历日子通过 `ctx.service('lunar')` 从日程插件拿换算，日程没开就只支持公历；服务 `dates`（`upcoming(days)` / `summary()`）。
+- `weather` 天气（`src/plugins/weather`，已实现）：Open-Meteo 预报 + 空气质量 + 城市搜索，不要 Key；定位（反查地名）或手选城市，地点和预报缓存存 `settings`，每小时最多拉一次；`volatile` 一行「你那边：北京 12°C 小雨，今天 8~15°C，空气良」，没有触发词（每轮一行，没设地点或拉不到就不带）；补发 `attach` 档早上 5–11 点只在明显变化时（降温 / 升温 ≥ 5°C、有雨雪、风大、空气差、高温 / 严寒）提一句，一天一次；界面一屏：当前 + 24 小时 + 7 天 + 日出日落；网络失败静默退回缓存，聊天不受影响；服务 `weather`（`line()` 一行、`today()` 结构化的今天含 `notes`、`place()`），复盘 / 早安插件拿今天天气用这个。
 
 ### 6.3 推送
 
