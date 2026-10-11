@@ -144,16 +144,17 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 
 "专精"不是角色，是插件。一个能力包通常提供：
 
-| 贡献点 | 记账插件举例 |
+| 贡献点 | 记账插件（`src/plugins/ledger`，已实现） |
 |---|---|
-| `app` | 账本界面 |
-| `tools` | `ledger_add`、`ledger_query`：他能替你记一笔、查一下 |
-| `promptContributors.volatile` | 本周支出一行摘要 |
-| `composerActions` | 「+」面板里的"记一笔"：用户主动发，产出带卡片的 `OutgoingMessage` |
-| `outputHandlers` | 账单卡片 |
-| `catchup` | 周一补一条上周小结 |
+| `app` | 账本界面：本月合计和分类条、按天流水、左滑删除、导出 CSV |
+| `tools` | `ledger_add`、`ledger_query`、`ledger_delete`：他能替你记一笔、查一下、删一笔。金额整数分，日期 `YYYY-MM-DD`，自然语言由模型翻成数字，插件只校验 |
+| `promptContributors.volatile` | 本周支出一行摘要，`triggers` 是「花了、买了、多少钱…」，提到才注入 |
+| `composerActions` | 「+」面板里的"记一笔"：你主动发，产出带账单卡的 `OutgoingMessage` |
+| `outputHandlers` | `bill` 账单卡片（`attrs` 里带快照，那笔删了也还能显示） |
+| `catchup` | `days` 档：周一到周三回来、上周有记录且这周没说过，他顺口提一句上周花销（`say`） |
 | `profileSections` | 他的主页上挂"本月花了多少" |
-| `storage` | `p_ledger_entries` 表 |
+| `services` | `ledger`：`monthTotal()`、`range(from, to)`，复盘插件拿昨天花了多少用这个 |
+| `storage` | `p_ledger_entries` 表（`id, date, category`） |
 
 内核的 `ctx.addCard`、`share`、`services` 机制全部沿用。插件不自己听 `app.resumed` 调模型。
 

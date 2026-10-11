@@ -144,16 +144,17 @@ In Pocketverse catch-up is "a few story days passed, post a moment, write a diar
 
 A "specialty" is a plugin, not a character. A pack typically contributes:
 
-| Contribution | Ledger plugin example |
+| Contribution | Ledger plugin (`src/plugins/ledger`, implemented) |
 |---|---|
-| `app` | The ledger screen |
-| `tools` | `ledger_add`, `ledger_query`: they can record or look up for you |
-| `promptContributors.volatile` | A one-line summary of this week's spending |
-| `composerActions` | "Log an expense" in the "+" panel: user-initiated, produces an `OutgoingMessage` with a card |
-| `outputHandlers` | Expense card |
-| `catchup` | Weekly summary on Mondays |
+| `app` | The ledger screen: month total with a category bar, entries grouped by day, swipe to delete, CSV export |
+| `tools` | `ledger_add`, `ledger_query`, `ledger_delete`: they can record, look up or remove an entry for you. Amounts are integer cents, dates are `YYYY-MM-DD`; the model turns natural language into numbers, the plugin only validates |
+| `promptContributors.volatile` | A one-line summary of this week's spending, with `triggers` such as "花了 / 买了 / 多少钱" so it is only injected when money comes up |
+| `composerActions` | "Log an expense" in the "+" panel: user-initiated, produces an `OutgoingMessage` with an expense card |
+| `outputHandlers` | The `bill` card (a snapshot in `attrs` keeps it readable after the entry is deleted) |
+| `catchup` | `days` tier: back on Mon–Wed with last week's entries and nothing said yet this week, they mention last week's spending (`say`) |
 | `profileSections` | "Spent this month" on their profile page |
-| `storage` | The `p_ledger_entries` table |
+| `services` | `ledger`: `monthTotal()`, `range(from, to)`, for the review plugin to pull yesterday's spending |
+| `storage` | The `p_ledger_entries` table (`id, date, category`) |
 
 `ctx.addCard`, `share` and `services` are all reused. Plugins never listen to `app.resumed` and call the model themselves.
 
