@@ -1,6 +1,6 @@
 <script lang="ts">
   /** 日程界面：顶上今天是什么日子，下面过期 / 今天 / 明天 / 以后 / 已完成。勾圆圈完成，点标题看详情。 */
-  import { NavBar, Placeholder, Sheet, Button, Glyph, live, icons } from '$kernel/api';
+  import { NavBar, Placeholder, Sheet, Button, Glyph, live, icons, nav } from '$kernel/api';
   import { registry } from '$kernel/registry/registry.svelte';
   import { scheduleApi, type ScheduleItem } from './index';
   import { isoDate, addDays, relativeLabel, longDate, weekday, daysBetween, shortDate } from './dates';
@@ -12,7 +12,8 @@
   const sorted = $derived([...rows.value].sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '99').localeCompare(b.time ?? '99') || a.createdAt - b.createdAt));
   const tomorrow = addDays(today, 1);
   const groups = $derived.by(() => {
-    const open = sorted.filter((i) => !i.done);
+    // 订阅来的日历事件过了就过了，不算过期
+    const open = sorted.filter((i) => !i.done && (i.date >= today || i.source !== 'calendar'));
     const done = sorted.filter((i) => i.done).sort((a, b) => (b.doneAt ?? 0) - (a.doneAt ?? 0)).slice(0, 20);
     return [
       { key: 'overdue', label: '过期', items: open.filter((i) => i.date < today) },
@@ -45,14 +46,17 @@
   async function remove() { if (viewing) await scheduleApi.remove(viewing.id); viewing = null; }
   async function toggleViewing() { if (viewing) { await toggle(viewing); viewing = null; } }
   const overdueTime = (i: ScheduleItem) => !i.done && i.date === today && !!i.remindAt && i.remindAt < Date.now() - 30 * 60_000;
+  const timeLabel = (i: ScheduleItem) => (i.time ? `${i.time}${i.endTime ? '–' + i.endTime : ''}` : i.allDay ? '全天' : '待办');
   function when(i: ScheduleItem, g: string) {
-    if (g === 'today' || g === 'tomorrow') return i.time ?? '待办';
-    return `${relativeLabel(i.date, today)}${i.time ? ' ' + i.time : ''}`;
+    if (g === 'today' || g === 'tomorrow') return timeLabel(i);
+    return `${relativeLabel(i.date, today)}${i.time ? ' ' + i.time : i.allDay ? ' 全天' : ''}`;
   }
+  const sourceLabel = (i: ScheduleItem) => (i.source === 'tool' ? '他记的' : i.source === 'calendar' ? '日历订阅来的，要改去日历里改' : '你记的');
 </script>
 
 <NavBar title="日程" large back="桌面">
   {#snippet right()}
+    <button class="iconbtn" onclick={() => nav.push('schedule', 'calendars')} aria-label="订阅日历"><Glyph paths={icons.globe} size={22} color="var(--tint)" width={2} /></button>
     <button class="iconbtn" onclick={() => (adding = true)} aria-label="记个日程"><Glyph paths={icons.plus} size={24} color="var(--tint)" width={2.2} /></button>
   {/snippet}
 </NavBar>
@@ -68,7 +72,7 @@
 {/if}
 
 {#if groups.length === 0}
-  <Placeholder title="还没有安排" body="在聊天里说「明天下午三点开会」他会记下来；右上角 + 也可以自己记。不填时间就是待办。" paths={['M4 6h16v14H4z', 'M4 10h16', 'M8 3v4M16 3v4']} />
+  <Placeholder title="还没有安排" body="在聊天里说「明天下午三点开会」他会记下来；右上角 + 也可以自己记，不填时间就是待办。用 Google 日历的话，右上角地球图标可以把日历订阅进来。" paths={['M4 6h16v14H4z', 'M4 10h16', 'M8 3v4M16 3v4']} />
 {:else}
   {#each groups as g (g.key)}
     <div class="section" class:overdue={g.key === 'overdue'} class:finished={g.key === 'done'}>
@@ -96,11 +100,12 @@
 </Sheet>
 <Sheet open={!!viewing} onclose={() => (viewing = null)} title={viewing?.title ?? ''}>
   {#if viewing}
-    <p class="detail">{relativeLabel(viewing.date, today)} · {longDate(viewing.date)} {weekday(viewing.date)}{viewing.time ? ` · ${viewing.time}` : ' · 待办'}{viewing.done ? ' · 已完成' : ''}</p>
-    <p class="detail dim">{viewing.source === 'tool' ? '他记的' : '你记的'}</p>
+    <p class="detail">{relativeLabel(viewing.date, today)} · {longDate(viewing.date)} {weekday(viewing.date)} · {timeLabel(viewing)}{viewing.done ? ' · 已完成' : ''}</p>
+    {#if viewing.place}<p class="detail">{viewing.place}</p>{/if}
+    <p class="detail dim">{sourceLabel(viewing)}</p>
     <div class="actions">
       <Button onclick={toggleViewing}>{viewing.done ? '标成没做' : '完成'}</Button>
-      <Button kind="plain" onclick={remove}><span style="color:var(--red)">删掉</span></Button>
+      <Button kind="plain" onclick={remove}><span style="color:var(--red)">{viewing.source === 'calendar' ? '这里不显示' : '删掉'}</span></Button>
     </div>
   {/if}
 </Sheet>

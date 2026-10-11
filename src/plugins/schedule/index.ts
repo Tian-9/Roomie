@@ -8,10 +8,16 @@ import NextSection from './NextSection.svelte';
 import { isoDate, parseDate, normalizeTime, addDays, atTime, whenLabel, weekday, shortDate } from './dates';
 import { toLunar, lunarFestival } from './lunar';
 import { dayInfo, dayLine, nextHoliday, holidayOf } from './holidays';
+import { feeds } from './feeds';
+import Calendars from './Calendars.svelte';
+
+export { feeds, type Feed, type FeedSettings, type SyncResult } from './feeds';
 
 /**
  * 一条日程。有 time 的是"几点有事"，没有的是当天待办。done 用 0/1 而不是布尔，IndexedDB 不能给布尔建索引。
  * remindAt 是到点提醒的时刻（有 time 才有）；notifiedAt 前台弹过了；notedAt 他在补发里提过了（错过的事不反复念叨）。
+ * source 为 calendar 的是订阅日历来的：feedId 是哪个订阅，feedKey 是日历里的 UID + 这一次的开始时刻，同步时按它认人；
+ * 它们不是待办，过了就过了，不进"过期"。
  */
 export interface ScheduleItem {
   id: string;
@@ -26,13 +32,25 @@ export interface ScheduleItem {
   notifiedAt?: number;
   notedAt?: number;
   createdAt: number;
-  source: 'tool' | 'manual';
+  source: 'tool' | 'manual' | 'calendar';
+  feedId?: string;
+  feedKey?: string;
+  /** 日历里的全天事件（没 time 的手记是待办，这个不是） */
+  allDay?: 1;
+  /** HH:mm，日历事件同一天内的结束时间 */
+  endTime?: string;
+  place?: string;
 }
+
+/** 订阅来的日历事件不是待办：过了日子就不算"过期没做" */
+export const isOpenTodo = (i: ScheduleItem, today: string) => !i.done && (i.date >= today || i.source !== 'calendar');
 
 export const ICON = { paths: ['M4 6h16v14H4z', 'M4 10h16', 'M8 3v4M16 3v4'], background: gradients.red };
 /** 到点后这么久以内回到前台还会弹；再久就不弹了，留给补发去提 */
 export const LATE_WINDOW = 30 * 60_000;
 const TICK = 30_000;
+/** 打开后隔这么久再去拉订阅的日历，别和聊天、补发抢 */
+const FEED_DELAY = 4000;
 
 let ctx: PluginContext;
 let stopTimer: (() => void) | null = null;
@@ -47,7 +65,7 @@ export const scheduleApi = {
   },
   /** 今天的（含过期未完成的） */
   async today(today = isoDate()): Promise<ScheduleItem[]> {
-    const rows = await table().where('date').belowOrEqual(today).filter((i) => !i.done || i.date === today).toArray();
+    const rows = await table().where('date').belowOrEqual(today).filter((i) => i.date === today || isOpenTodo(i, today)).toArray();
     return sortItems(rows);
   },
   /** 接下来几件没完成的 */
@@ -68,7 +86,12 @@ export const scheduleApi = {
   async setDone(id: string, done: boolean) {
     await table().update(id, done ? { done: 1, doneAt: Date.now() } : { done: 0, doneAt: undefined });
   },
-  async remove(id: string) { await table().delete(id); },
+  /** 删一条。订阅来的删了会记住，下次同步不再加回来 */
+  async remove(id: string) {
+    const row = await table().get(id);
+    if (row?.source === 'calendar') await feeds.hide(row);
+    else await table().delete(id);
+  },
   /** 按 id 找，找不到按标题找（没做完的优先） */
   async find(idOrTitle: string): Promise<ScheduleItem | undefined> {
     const key = idOrTitle.trim();
@@ -108,7 +131,7 @@ function systemNotify(i: ScheduleItem) {
 
 /** 给模型看的一行：- [id] 明天 15:00 开会 */
 export function describeItem(i: ScheduleItem, today = isoDate()): string {
-  return `- [${i.id}] ${whenLabel(i.date, i.time, today)} ${i.title}${i.done ? '（已完成）' : i.date < today ? '（过期没做）' : ''}`;
+  return `- [${i.id}] ${whenLabel(i.date, i.time, today)}${i.endTime ? '–' + i.endTime : ''} ${i.title}${i.place ? '（' + i.place + '）' : ''}${i.done ? '（已完成）' : i.date < today && i.source !== 'calendar' ? '（过期没做）' : ''}`;
 }
 export function alt(i: ScheduleItem, today = isoDate()): string {
   return `[日程] ${whenLabel(i.date, i.time, today)} ${i.title}`;
@@ -134,7 +157,7 @@ async function collectToday(_c: CatchupContext): Promise<CatchupItem | null> {
   if (!left.length) return null;
   return {
     label: '今天的安排',
-    prompt: `对方今天还有：${left.map((i) => (i.date < today ? `${i.title}（${whenLabel(i.date, i.time, today)}，还没做）` : i.time ? `${i.time} ${i.title}` : `${i.title}（待办）`)).join('、')}。回消息的时候顺口带一句，像朋友随口提醒，不要列清单，不用每条都提。提了就 mentioned 给 true，这次不合适提就给 false。不是在回消息的话，想说的那句放 say 里。`,
+    prompt: `对方今天还有：${left.map((i) => (i.date < today ? `${i.title}（${whenLabel(i.date, i.time, today)}，还没做）` : i.time ? `${i.time} ${i.title}${i.place ? '（' + i.place + '）' : ''}` : i.allDay ? `${i.title}（全天）` : `${i.title}（待办）`)).join('、')}。回消息的时候顺口带一句，像朋友随口提醒，不要列清单，不用每条都提。提了就 mentioned 给 true，这次不合适提就给 false。不是在回消息的话，想说的那句放 say 里。`,
     schema: { type: 'object', additionalProperties: false, required: ['mentioned'], properties: { mentioned: { type: 'boolean' }, say: { type: 'string', description: '如果不是在回消息，这里放你想顺口说的那句；在回消息就留空' } } },
     async apply(out: unknown) {
       if ((out as { mentioned?: boolean } | undefined)?.mentioned !== false) await ctx.settings.set('mentioned', today);
@@ -165,19 +188,20 @@ export default definePlugin({
   id: 'schedule',
   name: '日程',
   version: '0.1.0',
-  description: '说一句"明天下午三点开会"他就记下来；打开手机时他提一句今天有什么，页面开着到点会弹提醒。带待办和节假日。',
+  description: '说一句"明天下午三点开会"他就记下来；打开手机时他提一句今天有什么，页面开着到点会弹提醒。带待办和节假日，能订阅 Google 日历。',
   app: { screen: Schedule, icon: ICON },
+  screens: { calendars: Calendars },
   storage: { tables: { items: 'id, date, done' } },
   promptContributors: [{
     id: 'agenda',
     triggers: ['明天', '后天', '今天', '周', '号', '点', '提醒', '日程', '待办', '安排', '下午', '上午', '晚上', '早上', '约', '有空', '放假', '节'],
-    stable: () => '对方说到要做的事、约了几点，就用 schedule_add 记下来，日期按"现在是"那行换算成 YYYY-MM-DD，几点用 HH:mm，没说几点就不给时间。问起有什么安排、几号放假，用 schedule_list 查了再答。',
+    stable: () => '对方说到要做的事、约了几点，就用 schedule_add 记下来，日期按"现在是"那行换算成 YYYY-MM-DD，几点用 HH:mm，没说几点就不给时间。问起有什么安排、几号放假，用 schedule_list 查了再答。日程里有些是从对方的日历订阅来的，改不了也删不了，他要改就让他去日历里改。',
     async volatile(_p: PromptContext) {
       const today = isoDate();
       const info = dayInfo(today);
       const head = `今天 ${today} ${weekday(today)}${info.lunar ? `，农历${info.lunar}` : ''}${info.holiday ? `，${info.holiday}放假中` : info.festival ? `，${info.festival}` : ''}`;
       const [td, tm] = await Promise.all([scheduleApi.today(today), scheduleApi.range(addDays(today, 1), addDays(today, 1))]);
-      const fmt = (i: ScheduleItem) => `${i.time ? i.time + ' ' : ''}${i.title}${i.done ? '（已完成）' : i.date < today ? '（' + whenLabel(i.date, i.time, today) + '，过期没做）' : ''}`;
+      const fmt = (i: ScheduleItem) => `${i.time ? i.time + ' ' : i.allDay ? '全天 ' : ''}${i.title}${i.place ? '（' + i.place + '）' : ''}${i.done ? '（已完成）' : i.date < today ? '（' + whenLabel(i.date, i.time, today) + '，过期没做）' : ''}`;
       const week = (await scheduleApi.range(addDays(today, 2), addDays(today, 7))).filter((i) => !i.done);
       const h = nextHoliday(today);
       const lines = [head];
@@ -219,7 +243,7 @@ export default definePlugin({
         const from = parseDate(i.from) ? (i.from as string) : today;
         const to = parseDate(i.to) ? (i.to as string) : addDays(from, 6);
         const rows = await scheduleApi.range(from, to);
-        const overdue = from <= today ? (await scheduleApi.today(today)).filter((x) => x.date < today && !x.done) : [];
+        const overdue = from <= today ? (await scheduleApi.today(today)).filter((x) => x.date < today && isOpenTodo(x, today)) : [];
         const all = sortItems([...overdue, ...rows.filter((r) => !overdue.some((o) => o.id === r.id))]).slice(0, 30);
         const hol: string[] = [];
         for (let d = from, n = 0; d <= to && n < 400; d = addDays(d, 1), n++) {
@@ -255,7 +279,7 @@ export default definePlugin({
         const item = await scheduleApi.find(str((input as { id?: unknown })?.id));
         if (!item) return '没找到这条。先 schedule_list 看看。';
         await scheduleApi.remove(item.id);
-        return `删掉了：${whenLabel(item.date, item.time)} ${item.title}`;
+        return item.source === 'calendar' ? `这里不显示了：${whenLabel(item.date, item.time)} ${item.title}（它是日历订阅来的，日历里还在）` : `删掉了：${whenLabel(item.date, item.time)} ${item.title}`;
       },
     },
   ],
@@ -276,9 +300,9 @@ export default definePlugin({
     lunar: { toLunar, lunarFestival, dayInfo, dayLine, nextHoliday },
   },
   onEvent: {
-    // 回到前台：定时器可能被浏览器掐了，重新对表，顺便把刚到点的弹出来
-    'app.resumed': () => { if (ctx) { arm(); scheduleApi.tick().catch(() => {}); } },
+    // 回到前台：定时器可能被浏览器掐了，重新对表，顺便把刚到点的弹出来；订阅的日历过了间隔就在后台拉一次
+    'app.resumed': () => { if (ctx) { arm(); scheduleApi.tick().catch(() => {}); feeds.later(FEED_DELAY); } },
   },
-  setup(c) { ctx = c; arm(); },
-  teardown() { stopTimer?.(); stopTimer = null; },
+  setup(c) { ctx = c; feeds.init(c, table); arm(); feeds.later(FEED_DELAY); },
+  teardown() { stopTimer?.(); stopTimer = null; feeds.stop(); },
 });

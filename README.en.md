@@ -18,7 +18,7 @@ Roomie is the real-world fork of [Pocketverse](https://github.com/Tian-9/pocketv
 **M3: out of the browser.** Once they could chat, remember and remind, this round locks the door, hooks up your phone and links several devices:
 
 - **Onboarding**: pick who moves in (three built-in personas, a one-line description the model turns into one, or a card import), enter a Claude API key, and they speak first: an introduction and three questions (what to call you, when you sleep, what you are busy with), then you are straight in the conversation.
-- **Seven packs**: ledger (say "lunch 32" in chat and it is recorded), habits (things to keep up, check-ins, streaks), schedule ("meeting tomorrow at 3" gets recorded and reminded), dates (birthdays and countdowns, lunar too), weather (what it is like where you are, with a word when it turns cold or rainy), review (come back after a day and they say good morning and talk about yesterday; a weekly summary on Sunday night) and moments (a line or two about your last few days; heart it or answer it in chat). All plugins, all switchable in settings.
+- **Seven packs**: ledger (say "lunch 32" in chat and it is recorded), habits (things to keep up, check-ins, streaks), schedule ("meeting tomorrow at 3" gets recorded and reminded; can subscribe to Google Calendar), dates (birthdays and countdowns, lunar too), weather (what it is like where you are, with a word when it turns cold or rainy), review (come back after a day and they say good morning and talk about yesterday; a weekly summary on Sunday night) and moments (a line or two about your last few days; heart it or answer it in chat). All plugins, all switchable in settings.
 - **Catch-up on open**: how long you were away decides what they say, every plugin's line is merged into one message from them, and good morning is said once.
 - **Lock screen and key encryption**: set a 4–6 digit PIN, required on open and after coming back from the background; the API key, the Bot token and the sync password are sealed with it, so neither the browser database nor a backup file holds them in plaintext.
 - **Telegram push** (off by default): while the page is open, reminders and what they say on your return are also sent to Telegram on your phone; you create your own bot.
@@ -42,6 +42,20 @@ What comes next is M4 in section 7 of the architecture doc.
 - **GitHub Pages** (needed to use it as an app on your phone): after forking or pushing to your own repository, open the repository's Settings → Pages and set Source to **GitHub Actions**; every push to `main` then deploys, and "Add to Home Screen" in the phone browser installs it. Without that setting the deploy workflow fails with a 404.
 - **Telegram bot** (optional): message [@BotFather](https://t.me/BotFather) with `/newbot` to get a token; enable Telegram under Settings → Plugins, open the Telegram app on the home screen, paste the token, send your bot any message, then tap "Find me". This page is the sender: nothing is sent while it is closed (leave a tab open on a computer), and replies typed in Telegram never reach them.
 - **WebDAV** (optional, for sync): you need a WebDAV server that allows cross-origin requests. Your own Nextcloud (with an app such as WebAppPassword that opens CORS, or a reverse proxy adding `Access-Control-Allow-Origin` and friends), `rclone serve webdav` and `dufs` all work; Nutstore (坚果云) does not allow CORS and cannot be reached from a web page. The server must allow `PUT / MKCOL / PROPFIND`, accept the `Authorization / If-Match / Depth` headers and expose `ETag`. Enter it under Settings → Sync and press "Test" before saving.
+- **Google Calendar** (optional): on a computer open Google Calendar → gear → Settings → pick the calendar on the left → scroll to "Integrate calendar" → copy the "Secret address in iCal format", and paste it under the globe icon at the top right of Schedule ("Subscribe calendars"). Read-only, one-way: what you add in Google lands in Schedule, what they write down never goes back to Google; there is no backend, so it is fetched once when you open Roomie (not again within a few hours), and changes in Google show up on the next open. Google's address sends no CORS headers, so a direct fetch from the browser is usually blocked. Two ways out: export from Google Calendar settings → Import & export and import the .ics file (importing the same calendar again updates it), or host your own relay, e.g. a free Cloudflare Worker, and put its address under "Self-hosted relay" (`{url}` is replaced with the encoded calendar address). Don't use a public proxy, that hands your whole calendar to a stranger. Worker code:
+
+  ```js
+  export default {
+    async fetch(req) {
+      const url = new URL(req.url).searchParams.get('url') ?? '';
+      if (!url.startsWith('https://calendar.google.com/')) return new Response('nope', { status: 400 });
+      const r = await fetch(url, { cf: { cacheTtl: 0 } });
+      return new Response(r.body, { status: r.status, headers: { 'content-type': 'text/calendar', 'access-control-allow-origin': '*' } });
+    },
+  };
+  ```
+
+  Once deployed, enter `https://your.workers.dev/?url={url}`. For extra safety hard-code the address in the Worker and add a query parameter only you know as a passphrase.
 - **Lock screen** (recommended): Settings → Lock screen. The PIN is stored nowhere; if you forget it, the only way out is clearing the key and entering it again, everything else is kept.
 
 ## Development
