@@ -158,6 +158,10 @@ A "specialty" is a plugin, not a character. A pack typically contributes:
 
 `ctx.addCard`, `share` and `services` are all reused. Plugins never listen to `app.resumed` and call the model themselves.
 
+Capability packs so far (each plugin adds its own line when it lands):
+
+- `habits` habit tracking: tables `habits` / `checks`; tools `habit_add`, `habit_check`, `habit_status`; a `check` card; one `volatile` line of streaks (triggers: 打卡, 坚持, 习惯…); an `attach`-tier catch-up that asks after 8 pm about habits not yet checked today; a "习惯" profile section; service `habits` (`summary()` / `status()`).
+
 ### 6.3 Push
 
 Background timers are throttled (Chrome: once per minute for background tabs, intensive throttling after 5 minutes), and a backgrounded mobile page may be discarded at any time. Therefore:

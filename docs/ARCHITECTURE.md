@@ -158,6 +158,10 @@ Pocketverse 的补发是"角色在剧情里过了几天，补发朋友圈、日�
 
 内核的 `ctx.addCard`、`share`、`services` 机制全部沿用。插件不自己听 `app.resumed` 调模型。
 
+已有的能力包（各插件合入时在这里补一行自己的贡献点）：
+
+- `habits` 习惯打卡：表 `habits` / `checks`；工具 `habit_add`、`habit_check`、`habit_status`；`check` 卡片；`volatile` 一行连续天数（触发词：打卡、坚持、习惯…）；补发 `attach` 档晚上八点后问一句今天没打的；主页段「习惯」；服务 `habits`（`summary()` / `status()`）。
+
 ### 6.3 推送
 
 浏览器后台定时器会被节流（Chrome 后台标签最多每分钟一次，超过 5 分钟进密集节流），手机切走后页面随时可能被回收。所以：
