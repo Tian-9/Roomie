@@ -78,7 +78,7 @@ roomie/
       chat/              信息（内核级，不可关闭）
       characters/        他：人设、主页、记忆、角色卡导入
       diary/             日记：他替你写的每日复盘（示范插件）
-      settings/          API、外观、插件开关、日志
+      settings/          API、外观、插件开关、日志、整库导出导入
     main.ts              启动：内核 → 注册插件 → 挂载 shell
 ```
 
@@ -87,6 +87,8 @@ roomie/
 ## 5. 核心数据模型
 
 内核表（M1 起，见 `src/kernel/storage/db.ts`）：`home`、`characters`、`conversations`、`messages`、`memories`、`notes`、`kv`、`usage`、`logs`。Pocketverse 的 `worlds`、`lore`、`overlays`、`campaigns` 已删除；旧库打开时 Dexie 会删掉这些表，`memfs` 因为主键变了（Dexie 不能改主键）换成了 `notes`。
+
+备份：设置 → 数据 → 导出全部，把 `db.tables` 里除 `logs` / `usage` 之外的每张表（含插件表）打成一个 JSON（`src/plugins/settings/backup.ts`），Blob 转 base64，文件头 `{ app: 'roomie', kernel, schema, exportedAt }`。导入先预览再整库替换（一个事务里清空再写，失败回滚），只接受内核版本相同的备份；备份里有而当前没装的插件表跳过。以后的多端同步建在这个格式上。
 
 ```ts
 // 他：人设卡。可以有好几张（换人设），但下面的东西都不跟卡走

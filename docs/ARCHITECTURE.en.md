@@ -78,7 +78,7 @@ roomie/
       chat/              Messages (kernel-level, cannot be disabled)
       characters/        Them: persona, profile, memories, card import
       diary/             Diary: the daily review they write for you (sample plugin)
-      settings/          API, appearance, plugin toggles, logs
+      settings/          API, appearance, plugin toggles, logs, full-database export / import
     main.ts              boot: kernel → register plugins → mount shell
 ```
 
@@ -87,6 +87,8 @@ Rule: `plugins/*` may only import `$kernel/api`, never kernel internals or other
 ## 5. Core data model
 
 Kernel tables (from M1 on, see `src/kernel/storage/db.ts`): `home`, `characters`, `conversations`, `messages`, `memories`, `notes`, `kv`, `usage`, `logs`. Pocketverse's `worlds`, `lore`, `overlays` and `campaigns` are gone; opening an old database drops those tables, and `memfs` became `notes` because its primary key changed (Dexie cannot change a primary key in place).
+
+Backup: Settings → Data → Export all packs every table in `db.tables` except `logs` / `usage` (plugin tables included) into one JSON file (`src/plugins/settings/backup.ts`), Blobs as base64, with the header `{ app: 'roomie', kernel, schema, exportedAt }`. Import shows a preview, then replaces the whole database (clear and write in one transaction, rolled back on failure); only backups with the same kernel version are accepted, and tables belonging to plugins that are not installed are skipped. Multi-device sync will be built on this format.
 
 ```ts
 // Them: the persona card. There can be several (swap the persona), but nothing below follows the card

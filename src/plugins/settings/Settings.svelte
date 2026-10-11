@@ -28,6 +28,10 @@
 <List footer="开关插件会即时增减桌面图标和 Dock 候选项。">
   <Cell title="插件" value={`${enabledCount} 个已开启`} icon={{ paths: icons.plug, background: gradients.black }} chevron onclick={() => nav.push('settings', 'plugins')} />
 </List>
+<SectionTitle text="数据" />
+<List footer="数据只在这台设备的浏览器里。定期导出一份，换手机或清了缓存也能导回来。">
+  <Cell title="备份与恢复" icon={{ paths: icons.receipt, background: gradients.green }} chevron onclick={() => nav.push('settings', 'data')} />
+</List>
 <SectionTitle text="关于" />
 <List footer="日志只存在本机，记的是决策和结果（为什么合并、请求花了多少、哪里出错），不记聊天正文。出问题时复制发给开发者。">
   <Cell title="Roomie" value="0.0.1 · M1" subtitle={`构建 ${__BUILD__}`} />
