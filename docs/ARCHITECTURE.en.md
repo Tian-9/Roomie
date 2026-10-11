@@ -136,7 +136,7 @@ In Pocketverse catch-up is "a few story days passed, post a moment, write a diar
 - Tiers unchanged: `h6` (≥ 6h), `d1` (≥ 24h), `days` (≥ 2 days), `attach` (rides on the next chat reply).
 - Plugins register `catchup: [{ id, tier, collect(ctx) }]`; the kernel merges everything into **one** model call. Expected v1 items:
   - Diary (`d1`): yesterday's review.
-  - Schedule (`attach`): what is on today, mentioned in passing.
+  - Schedule (`attach`): what is on today, mentioned in passing; (`h6`) items that came due while you were away, asked about once.
   - Ledger (`days`, Mondays): last week's spending summary.
 - Their opening line is assembled by the kernel: each section's schema may carry an optional `say` field (the one line they want to say after handling it); the kernel joins the greeting (`h6` none, `d1` "早", `days` "好久不见") with every section's `say` into **one** message from them, written into the direct conversation, and emits `notify`. If nobody has anything to say, nothing is posted. Budget: at most one round per resume.
 
@@ -161,6 +161,7 @@ A "specialty" is a plugin, not a character. A pack typically contributes:
 Capability packs so far (each plugin adds its own line when it lands):
 
 - `habits` habit tracking: tables `habits` / `checks`; tools `habit_add`, `habit_check`, `habit_status`; a `check` card; one `volatile` line of streaks (triggers: 打卡, 坚持, 习惯…); an `attach`-tier catch-up that asks after 8 pm about habits not yet checked today; a "习惯" profile section; service `habits` (`summary()` / `status()`).
+- `schedule` (agenda and reminders, `src/plugins/schedule`, implemented): `p_schedule_items` table; tools `schedule_add` / `schedule_list` / `schedule_done` / `schedule_remove`; the `event` card; "Add an event" in the "+" panel; a `volatile` block with today / tomorrow / the next public holiday (triggers: tomorrow, o'clock, remind…); catch-up `attach` tier "what's left today" (mentioned once a day) and `h6` tier "what you missed while away"; next item on the profile page; a foreground timer polling due reminders every 30 s (kernel `notify` plus browser `Notification`, no background push promised); services `schedule` (today / range / upcoming) and `lunar` (lunar calendar and the Chinese public-holiday table: 2026 per the State Council notice, 2027 estimated).
 
 ### 6.3 Push
 

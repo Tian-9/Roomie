@@ -26,7 +26,7 @@ async function boot() {
   await llm.boot();
   await chat.boot();
   await registry.boot({
-    enabled: ['diary', 'ledger', 'habits'],
+    enabled: ['diary', 'ledger', 'habits', 'schedule'],
     dock: [
       { pluginId: 'chat', shortcutId: 'app' },
       { pluginId: 'characters', shortcutId: 'app' },
